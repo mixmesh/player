@@ -12,9 +12,9 @@ A player's characteristics can be configured using a players
 configuration directive in Obscrete's configuration files as seen in
 ./obscrete/etc/*.conf.
 
-It is possible to start many players on a single Erlang node from a
-single configuration file but this is only meaningful in simulation
-scenarios.
+It is possible to start many players on a single Erlang node,
+i.e. you start several player_sup supervisors. This is what the
+simulator application does.
 
 ## Files
 

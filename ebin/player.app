@@ -1,6 +1,6 @@
 %% -*- erlang -*-
 {application, player,
- [{description, "The Obscrete player application"},
+ [{description, "A Player"},
   {vsn, "1.0"},
   {modules, [mail_serv,
              player_app,
@@ -15,4 +15,4 @@
              smtp_proxy_serv]},
   {registered, []},
   {mod, {player_app, []}},
-  {applications, [kernel, stdlib, sasl, skernel]}]}.
+  {applications, [kernel, stdlib, sasl, pki]}]}.

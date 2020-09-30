@@ -58,7 +58,8 @@
          picked_as_source = false    :: boolean(),
          pick_mode = is_nothing      :: pick_mode(),
          paused = false              :: boolean(),
-         meters_moved = 0            :: integer()}).
+         meters_moved = 0            :: integer(),
+         simulated                   :: boolean()}).
 
 %% Exported: start_link
 
@@ -85,7 +86,7 @@ initial_message_handler(State) ->
 stop(Pid) ->
     serv:call(Pid, stop).
 
-%%Exported: pause
+%% Exported: pause
 
 pause(Pid) ->
     Pid ! pause,
@@ -209,7 +210,8 @@ init(Parent, Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
                 buffer = Buffer,
                 keys = Keys,
                 location_generator = LocationGenerator,
-                degrees_to_meters = DegreesToMeters}}.
+                degrees_to_meters = DegreesToMeters,
+                simulated = Simulated}}.
 
 read_public_key(Name) ->
     case pki_network_client:read(Name) of
@@ -286,7 +288,8 @@ message_handler(
          picked_as_source = PickedAsSource,
          pick_mode = PickMode,
          paused = Paused,
-         meters_moved = MetersMoved} = State) ->
+         meters_moved = MetersMoved,
+         simulated = Simulated} = State) ->
   receive
       {call, From, stop} ->
           {stop, From, ok};
@@ -296,31 +299,57 @@ message_handler(
           {noreply, State#state{paused = false}};
       {become_forwarder, MessageId} ->
           NewPickMode = {is_forwarder, {message_not_in_buffer, MessageId}},
-          true = player_db:update(#db_player{name = Name,
-                                             pick_mode = NewPickMode}),
+          if
+              Simulated ->
+                  true = player_db:update(#db_player{name = Name,
+                                                     pick_mode = NewPickMode});
+              true ->
+                  true
+          end,
           {noreply, State#state{pick_mode = NewPickMode}};
       become_nothing ->
-          true = player_db:update(#db_player{name = Name,
-                                             pick_mode = is_nothing}),
+          if
+              Simulated ->
+                  true = player_db:update(#db_player{name = Name,
+                                                     pick_mode = is_nothing});
+              true ->
+                  true
+          end,
           {noreply, State#state{pick_mode = is_nothing}};
       {become_source, TargetName, MessageId} ->
           NewPickMode = {is_source, {TargetName, MessageId}},
-          true = player_db:update(#db_player{name = Name,
-                                             pick_mode = NewPickMode}),
+          if
+              Simulated ->
+                  true = player_db:update(#db_player{name = Name,
+                                                     pick_mode = NewPickMode});
+              true ->
+                  true
+          end,
           {noreply, State#state{pick_mode = NewPickMode}};
       {become_target, MessageId} ->
           NewPickMode = {is_target, MessageId},
-          true = player_db:update(#db_player{name = Name,
-                                             pick_mode = NewPickMode}),
+          if
+              Simulated ->
+                  true = player_db:update(#db_player{name = Name,
+                                                     pick_mode = NewPickMode});
+              true ->
+                  true
+          end,
           {noreply, State#state{pick_mode = NewPickMode}};
       {call, From, {buffer_pop, SkipBufferIndices}} ->
           case player_buffer:pop(Buffer, SkipBufferIndices) of
               {ok, Message} ->
                   NewPickMode = calculate_pick_mode(Buffer, PickMode),
-                  true = player_db:update(
-                           #db_player{name = Name,
+                  if
+                      Simulated ->
+                          true = player_db:update(
+                                   #db_player{
+                                      name = Name,
                                       buffer_size = player_buffer:size(buffer),
-                                      pick_mode = NewPickMode}),
+                                      pick_mode = NewPickMode});
+                      true ->
+                          true
+                  end,
                   {reply, From, {ok, Message},
                    State#state{pick_mode = NewPickMode}};
               {error, Reason} ->
@@ -337,11 +366,17 @@ message_handler(
           end,
           BufferIndex = player_buffer:push(Buffer, Message),
           NewPickMode = calculate_pick_mode(Buffer, PickMode),
-          true = player_db:update(
-                   #db_player{name = Name,
+          if
+              Simulated ->
+                  true = player_db:update(
+                           #db_player{
+                              name = Name,
                               buffer_size = player_buffer:size(buffer),
                               pick_mode = NewPickMode}),
-          true = stats_db:message_buffered(Name),
+                  true = stats_db:message_buffered(Name);
+              true ->
+                  true
+          end,
           {reply, From, BufferIndex, State#state{pick_mode = NewPickMode}};
       {call, From, buffer_size} ->
           {reply, From, player_buffer:size(Buffer)};
@@ -358,7 +393,13 @@ message_handler(
                   ok = file:write_file(TempFilename, Letter),
                   {ok, _} = maildrop_serv:write(MaildropServPid, TempFilename),
                   ok = file:delete(TempFilename),
-                  true = stats_db:message_received(MessageId, SenderName, Name),
+                  if
+                      Simulated ->
+                          true = stats_db:message_received(
+                                   MessageId, SenderName, Name);
+                      true ->
+                          true
+                  end,
                   case PickMode of
                       {is_target, MessageId} ->
                           ?dbg_log({target_received_message, Name, MessageId}),
@@ -372,8 +413,13 @@ message_handler(
               true ->
                   %%io:format("GOT DUPLICATE MESSAGE: ~p\n",
                   %%          [{Name, SenderName}]),
-                  true = stats_db:message_duplicate_received(
-                           MessageId, SenderName, Name),
+                  if
+                      Simulated ->
+                          true = stats_db:message_duplicate_received(
+                                   MessageId, SenderName, Name);
+                      true ->
+                          true
+                  end,
                   noreply
           end;
       pick_as_source ->
@@ -387,15 +433,21 @@ message_handler(
                         <<MessageId:64/integer,
                           NameSize:8,
                           Name/binary,
-                          Letter>>, RecipientPublicKey),
+                          Letter/binary>>, RecipientPublicKey),
                   Message = <<MessageId:64/integer, EncryptedData/binary>>,
                   _ = player_buffer:push_many(Buffer, Message, ?K),
-                  true = player_db:update(
-                           #db_player{name = Name,
+                  if
+                      Simulated ->
+                          true = player_db:update(
+                                   #db_player{
+                                      name = Name,
                                       buffer_size = player_buffer:size(buffer),
                                       pick_mode = PickMode}),
-                  true = stats_db:message_created(
-                           MessageId, Name, RecipientName),
+                          true = stats_db:message_created(
+                                   MessageId, Name, RecipientName);
+                      true ->
+                          true
+                  end,
                   {reply, From, ok};
               {error, Reason} ->
                   {reply, From, {error, Reason}}
@@ -416,13 +468,24 @@ message_handler(
                           Message =
                               <<MessageId:64/integer, EncryptedData/binary>>,
                           _ = player_buffer:push_many(Buffer, Message, ?K),
-                          true = stats_db:message_created(
-                                   MessageId, Name, RecipientName)
+                          if
+                              Simulated ->
+                                  true = stats_db:message_created(
+                                           MessageId, Name, RecipientName);
+                              true ->
+                                  true
+                          end
                   end, N),
-          true = player_db:update(
-                   #db_player{name = Name,
+          if
+              Simulated ->
+                  true = player_db:update(
+                           #db_player{
+                              name = Name,
                               buffer_size = player_buffer:size(buffer),
-                              pick_mode = PickMode}),
+                              pick_mode = PickMode});
+              true ->
+                  true
+          end,
           {reply, From, ok};
       start_location_updating ->
           SendMailTime =
@@ -453,9 +516,15 @@ message_handler(
                (_) ->
                     wait_for_neighbour
             end, lists:subtract(NewNeighbours, Neighbours)),
-          true = player_db:update(
-                   #db_player{name = Name,
-                              neighbours = get_names(NewNeighbours)}),
+          if
+              Simulated ->
+                  true = player_db:update(
+                           #db_player{
+                              name = Name,
+                              neighbours = get_names(NewNeighbours)});
+              true ->
+                  true
+          end,
           {noreply, State#state{neighbours = NewNeighbours}};
       %%
       %% Below follows handling of internally generated messages
@@ -475,24 +544,39 @@ message_handler(
       {location_updated, Timestamp} ->
           case LocationGenerator() of
               end_of_locations ->
-                  true = player_db:update(
-                           #db_player{name = Name, is_zombie = true}),
+                  if
+                      Simulated ->
+                          true = player_db:update(
+                                   #db_player{name = Name, is_zombie = true});
+                      true ->
+                          true
+                  end,
                   {noreply, State#state{is_zombie = true}};
               {{NextTimestamp, NextX, NextY}, NewLocationGenerator} ->
                   if
                       X == none ->
                           ?dbg_log({initial_location, NextX, NextY}),
-                          true = player_db:add(Name, NextX, NextY);
+                          if
+                              Simulated ->
+                                  true = player_db:add(Name, NextX, NextY);
+                              true ->
+                                  true
+                          end;
                       true ->
                           ?dbg_log({location_updated,
                                     Name, X, Y, NextX, NextY}),
-                          true = player_db:update(
-                                   #db_player{
-                                      name = Name,
-                                      x = NextX,
-                                      y = NextY,
-                                      buffer_size = player_buffer:size(Buffer),
-                                      pick_mode = PickMode})
+                          if
+                              Simulated ->
+                                  true = player_db:update(
+                                           #db_player{
+                                              name = Name,
+                                              x = NextX,
+                                              y = NextY,
+                                              buffer_size = player_buffer:size(Buffer),
+                                              pick_mode = PickMode});
+                              true ->
+                                  true
+                          end
                   end,
                   ?dbg_log({will_check_location, Name,
                             NextTimestamp - Timestamp}),

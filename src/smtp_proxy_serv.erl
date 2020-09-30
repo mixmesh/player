@@ -1,5 +1,7 @@
 -module(smtp_proxy_serv).
--export([start_link/5]).
+-export([start_link/6]).
+
+%% DEBUG: swaks --from alice@obscrete.net --to bob@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --auth-password baz --body 'KILLME' --silent"
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
@@ -15,11 +17,12 @@
          forward_path = not_set         :: binary() | not_set,
          message_size = 64 * 1024       :: integer(),
          player_serv_pid = not_set      :: pid() | not_set,
-         temp_dir                       :: binary()}).
+         temp_dir                       :: binary(),
+         simulated                      :: boolean()}).
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, Address, Port) ->
+start_link(Name, Password, TempDir, Address, Port, Simulated) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -36,7 +39,8 @@ start_link(Name, Password, TempDir, Address, Port) ->
                #state{name = Name,
                       password = Password,
                       check_credentials = fun check_credentials/4,
-                      temp_dir = TempDir},
+                      temp_dir = TempDir,
+                      simulated = Simulated},
            servlets = [#servlet{command = helo, handler = fun helo/2},
                        #servlet{command = ehlo, handler = fun ehlo/2},
                        #servlet{command = auth, handler = fun auth/2},
@@ -117,30 +121,27 @@ auth(#channel{
     ?dbg_log({auth, Channel, Args}),
     case mail_util:get_arg(Args) of
         {ok, <<"PLAIN">>, [Credentials]} ->
-            try
-                %% Zm9vAGJhcgBiYXo= equals "foo\0bar\0baz"
-                case string:lexemes(base64:decode(Credentials), "\0") of
-                    [Autczid, Authcid, Password] ->
-                        case CheckCredentials(
-                               ServletState, Autczid, Authcid, Password) of
-                            true ->
-                                #response{
-                                   status = 235,
-                                   info = <<"authentication successful">>,
-                                   channel =
-                                       Channel#channel{
-                                         mode = auth, authenticated = true}};
-                            false ->
-                                #response{
-                                   status = 535,
-                                   info =
-                                       <<"authentication credentials invalid">>}
-                        end
-                end
-            catch
-                _:_ ->
-                    #response{status = 535,
-                              info = <<"authentication credentials invalid">>}
+            %% Zm9vAGJhcgBiYXo= equals "foo\0bar\0baz"
+            case string:lexemes(base64:decode(Credentials), "\0") of
+                [Authcid, Password] ->
+                    case CheckCredentials(
+                           ServletState, none, Authcid, Password) of
+                        true ->
+                            #response{
+                               status = 235,
+                               info = <<"authentication successful">>,
+                               channel =
+                                   Channel#channel{
+                                     mode = helo, authenticated = true}};
+                        false ->
+                            #response{
+                               status = 535,
+                               info =
+                                   <<"1authentication credentials invalid">>}
+                    end;
+                _ ->
+                    #response{status = 500,
+                              info = <<"syntax error, command unrecognized">>}
             end;
         {ok, <<"LOGIN">>, []} ->
             NewServletState =
@@ -163,7 +164,7 @@ mail(#channel{servlet_state = ServletState} = Channel, Args) ->
         {ok, ReversePath, RemainingArgs} ->
             case mail_util:get_arg(<<"SIZE">>, "=", integer, RemainingArgs) of
                 {ok, SizeValue, _} ->
-                    case ?b2i(SizeValue) > ServletState#state.message_size of
+                    case SizeValue > ServletState#state.message_size of
                         true ->
                             #response{status = 552,
                                       info = <<"too much mail data">>};
@@ -212,7 +213,8 @@ rcpt(#channel{servlet_state = ServletState} = Channel, Args) ->
 %% https://tools.ietf.org/html/rfc2821#section-4.1.1.4
 data(#channel{
         servlet_state =
-            #state{player_serv_pid = PlayerServPid} = ServletState} = Channel,
+            #state{player_serv_pid = PlayerServPid,
+                   simulated = Simulated} = ServletState} = Channel,
      #data{headers = _Headers, filename = Filename, size = Size} = Data) ->
     ?dbg_log({data, Channel, Data}),
     if
@@ -237,8 +239,13 @@ data(#channel{
 %                        _ ->
 %                            ok
 %                    end,
-                    ok = simulator_serv:elect_source_and_target(
-                           MessageId, ServletState#state.name, TargetName),
+                    if
+                        Simulated ->
+                            ok = simulator_serv:elect_source_and_target(
+                                   MessageId, ServletState#state.name, TargetName);
+                        true ->
+                            ok
+                    end,
                     ?dbg_log({send_mail, ServletState#state.name, TargetName,
                               Filename}),
                     %% FIXME: I need to rewrite player_server to work on files
@@ -286,48 +293,37 @@ quit(Channel, Args) ->
 any(#channel{
        mode = Mode,
        servlet_state =
-           #state{login_state = LoginState} = ServletState} = Channel,
+           #state{
+              login_state = LoginState,
+              check_credentials = CheckCredentials} = ServletState} = Channel,
     Line) ->
     ?dbg_log({any, Channel, Line}),
     case {Mode, LoginState} of
         %% https://www.samlogic.net/articles/smtp-commands-reference-auth.htm
         {auth, waiting_for_name} ->
-            try
-                Autczid = base64:decode(string:chomp(Line)),
-                NewServletState =
-                    ServletState#state{
-                      login_state = {waiting_for_password, Autczid}},
-                #response{
-                   status = 334,
-                   info = <<"UGFzc3dvcmQ6">>,
-                   channel = Channel#channel{servlet_state = NewServletState}}
-            catch
-                _:_ ->
-                    #response{status = 535,
-                              info = <<"authentication credentials invalid">>}
-            end;
+            Autczid = base64:decode(string:chomp(Line)),
+            NewServletState =
+                ServletState#state{
+                  login_state = {waiting_for_password, Autczid}},
+            #response{
+               status = 334,
+               info = <<"UGFzc3dvcmQ6">>,
+               channel = Channel#channel{servlet_state = NewServletState}};
         %% https://www.samlogic.net/articles/smtp-commands-reference-auth.htm
         {auth, {waiting_for_password, Autczid}} ->
-            try
-                Password = base64:decode(string:chomp(Line)),
-                case check_credentials(ServletState, none, Autczid,
-                                       Password) of
-                    true ->
-                        #response{
-                           status = 235,
-                           info = <<"authentication successful">>,
-                           channel =
-                               Channel#channel{mode = helo,
-                                               authenticated = true}};
-                    false ->
-                        #response{
-                           status = 535,
-                           info = <<"authentication credentials invalid">>}
-                end
-            catch
-                _:_ ->
-                    #response{status = 535,
-                              info = <<"authentication credentials invalid">>}
+            Password = base64:decode(string:chomp(Line)),
+            case CheckCredentials(ServletState, none, Autczid, Password) of
+                true ->
+                    #response{
+                       status = 235,
+                       info = <<"authentication successful">>,
+                       channel =
+                           Channel#channel{mode = helo,
+                                           authenticated = true}};
+                false ->
+                    #response{
+                       status = 535,
+                       info = <<"4authentication credentials invalid">>}
             end;
         _ ->
             #response{status = 502, info = <<"command not implemented">>}

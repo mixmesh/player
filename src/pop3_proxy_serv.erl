@@ -1,12 +1,12 @@
 -module( pop3_proxy_serv).
 -export([start_link/5]).
 
+%% DEBUG: mpop -d --host=127.0.0.1 --port=32098 --deliver=mbox,fnutt --keep=on --auth=user --user=p2 --passwordeval='echo "baz"'
+
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("mail/include/pop3lib.hrl").
 -include_lib("mail/include/maildrop_serv.hrl").
-
-%% Debug:  mpop -d --host=127.0.0.1 --port=32098 --deliver=mbox,fnutt --keep=on --auth=user --user=p2 --passwordeval='echo "baz"'
 
 -record(state,
         {name                        :: binary(),

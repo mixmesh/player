@@ -81,7 +81,7 @@ init([]) ->
                 #{id => smtp_proxy_serv,
                   start => {smtp_proxy_serv, start_link,
                             [Name, Password, TempDir, SmtpAddress,
-                             SmtpPort]}},
+                             SmtpPort, false]}},
             Pop3ProxyServSpec =
                 #{id => pop3_proxy_serv,
                   start => {pop3_proxy_serv, start_link,
