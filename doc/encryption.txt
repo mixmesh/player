@@ -1,0 +1,40 @@
+* Spiridon 2017
+
+  Vulnerable solution:
+
+    * P = <nym, PK, m, H(nym|PK|m)>
+    * <Em(1), Em(P)>
+
+    nym    = Pseudonym
+    PK     = Ephemeral public key to be used to send a reply
+    Em()   = Multiplicative Elgamal encryption function
+    m      = Plaintext message
+    H()    = Hash function
+
+  Ideal solution:
+
+    * P = <nym, PK, m, HMAC(nym|PK|m, K)>
+    * <Em(1), Em(P), Ea(0), Ea(P)>
+
+    Ea()   = Additive Elgamal encryption function
+    K      = HMAC key
+    HMAC() = Keyed-hash message authentication code
+
+    K is hidden in Ea(0) and Ea(P) and can be extracated by
+    calculating the discrete logarithm.
+
+  Silly solution:
+
+    * P = <nym, PK, m, HMAC(nym|PK|m, K)>
+    * <Em(1), Em(P), K>
+
+    Send K in cleartext until I find a fast solution to solve the
+    discrete logarithm.
+
+  Vulnerable solution for MVP:
+    * P = <m>
+    * <Em(1), Em(P)>
+    
+    Just encrypt a naked message using multiplicative Elgamal
+    encryption, i.e. P does not include a nym, PK and a HMAC based on
+    K.

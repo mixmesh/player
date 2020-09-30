@@ -1,0 +1,112 @@
+* Packets
+
+  Messages are split into network packets of size PACKET_SIZE. If not
+  all packets constituting a message have arrived within
+  MESSAGE_TIMEOUT seconds (counting from the timestamp of first packet
+  to arrive) all packets are deleted (including the message index).
+
+  A node tries to decrypt incoming packets (sent by neighbouring
+  nodes) and if it *fails* the packets are rerandomized awaiting to be
+  propagated to other neighbouring nodes (before they are deleted).
+
+  If a node *succeeds* to decrypt a packet it (obviously) is the
+  recipient of the packet. Note: It is enough to try to decrypt Em(1)
+  to detect packet ownership.
+
+  index-packet format:
+
+    b[b;?flags;8,            // If bits:is_set(INDEX_PACKET, flags)
+      b;?message_digest;32,
+      b;?number_of_packets;8,
+      b;?message_size;16]
+
+    If
+      <message_size> is less than the size of the remaining index
+      packet then read and decrypt the message (ignore any remaining
+      bytes) and write it to a message file named <message_digest> in
+      the message spooler.
+    Else
+      <message_size> is larger than the remaining packet then save
+      information to an index entry in a persistent store with the
+      following format:
+
+      {message_digest,
+       number_of_packets,
+       message_size,
+       timestamp,
+       flags,
+       received_packets}
+
+      Example: {"12A55GH5", 7, 45643, 23233423, 0, [0]}
+
+      Read and decrypt the rest of the index packet and write it to a
+      file named <message_digest>-0.part.
+
+  continuation-packet format:
+
+    b[b;?flags;8,            // If bits:is_set(CONTINUATION_PACKET, flags)
+      b;?message_digest;32,
+      b;?packet_number;8,
+      b;?packet_size;16]
+
+    If
+       an index entry already exists in the persistent store for this
+       <message-digest>
+       If
+         <message_digest>-<packet_number>.part file already exists (or
+         if the <packet_number> is out of bound (according to the
+         index entry) skip the continuation-packet, i.e it is a
+         duplicate (or an invalid) packet. 
+       Else
+         read and decrypt the remaining <packet_size> bytes from the
+         continuation packet and write it to a file named
+         <message_digest>-<packet_number>.part. Update
+         <received_packets> with <packet_number>. When all packets
+         constituting a message have arrived, they are concatenated
+         into a file named <message_id> in the mail spooler. Store it
+         in cleartext for now and set the MESSAGE_READY bit in <flags>
+         in the index entry.
+    Else
+      The index-packet will (hopefully) arrive later and in the
+      meantime create a dummy index entry. The index entry looks like
+      above but the INDEX_PACKET_MISSING bit should be set in the
+      flags settings in the dummy index extry.
+
+      Example: {"12A55GH5", 'none, 'none, 23233423,
+                set_flag(INDEX_PACKET_MISSING, flags), // If not
+                already set
+                [<packet-number>|<received_packets>]}
+
+      Read and decrypt the rest of the index packet and write it to a
+      file named <message_digest>-<packet-number>.part.
+
+  Packets are purged (including the index entry) if not all packets
+  constituting a message have arrived before a certain time limit,
+  i.e. at most MESSAGE_TIMEOUT seconds after the arrival of the first
+  packet (be it a "new-packet" or a "continuation-packet") according
+  to the <timestamp> in the message meta info.
+ 
+* Constants
+
+  * Messages larger than MAX_MESSAGE_SIZE are not allowed
+  * Messages are split into network packets of size PACKET_SIZE
+  * If not all packets constituting a message have arrived within
+    MESSAGE_TIMEOUT (counting from the timestamp of first packet to
+    arrive) all packets are deleted (including the message index [if
+    any]) [See below]
+  * The INDEX_PACKET bit in the packet flags signals that the packet
+    is an index packet  
+  * The CONTINUTAION_PACKET bit in the packet flags signals that the
+    packet is an continuation packet  
+  * The MESSAGE_READY bit in the index entry flags signals that all
+  * packets constitutung a message have been received  
+
+  Example:
+
+    ENCRYPTED_MAX_SIZE = 64kB
+    PACKET_SIZE = 4kB
+    MESSAGE_TIMEOUT = 24hours
+    INDEX_PACKET = #b00000001
+    CONTINUATION_PACKET = #b00000010
+    MESSAGE_IS_READY =  #b00000001
+    INDEX_PACKET_MISSING = #b00000001

@@ -1,0 +1,63 @@
+Check for players and their IP addresses on the network card. Ignore
+already known players and remove any knowledge of no longer available
+players.
+
+According to Spiridon 2017 the constant F is 0.2 and the prefered max
+buffer length is 1000 messages.
+
+For all new neighbours:
+
+If
+  <my-ip-address> > <neighbour-ip-address> then I contact the
+  neighbour and transmits F% of my buffered messages. After that the
+  neighbour transmits F% of his/her buffered messages (based on the 
+  buffer length before the neighbour received my messages).
+Else
+  wait for the neighbour to contact me and transmits 20% of his/her
+  buffered messages. After that I transmit 20% of my buffered messages
+  (based on the buffer length before I received the neighbour's
+  messages).
+
+The player which has the most siginficant ip-address (in this case IP1
+> IP2) transmits F% of his/her message buffer to the other player:
+
+IP1>IP2: <NUMBER-OF-MESSAGES> (2 byte)
+IP1>IP2: <SIZE> (2 bytes)
+IP1>IP2: <MESSAGE>
+IP1>IP2: <SIZE> (2 bytes)
+IP1>IP2: <MESSAGE>
+IP1>IP2: <SIZE> (2 bytes)
+IP1>IP2: <MESSAGE>
+IP1>IP2: <SIZE> (2 bytes)
+IP1>IP2: <MESSAGE>
+
+Then the other player does the same according to the above formula:
+
+IP2>IP1: <NUMBER-OF-MESSAGES> (2 byte)
+IP2>IP1: <SIZE> (2 bytes)
+IP2>IP1: <MESSAGE>
+IP2>IP1: <SIZE> (2 bytes)
+IP2>IP1: <MESSAGE>
+IP2>IP1: <SIZE> (2 bytes)
+IP2>IP1: <MESSAGE>
+IP2: <close>
+IP1: <close>
+
+In the example below IP1 starts with 1000 messages and IP2 with 900
+messages in their buffers:
+
+P1: 1000, P2: 900  (P1 -> P2: 200) 
+P1: 800,  P2: 1100 (P2 -> P1: 180)
+P1: 980,  P2: 920
+
+P1: 980,  P2: 920  (P1 -> P2: 196)
+P1: 784:  P2: 1116 (P2 -> P1: 184)
+P1: 968:  P2: 932
+
+P1: 968:  P2: 932 (P1 -> P2: 193)
+P1: 775:  P2: 1125 (P1 -> P2: 193)
+P1: 961:  P2: 939 (P2 -> P1: 186)
+
+P1: 968:  P2: 932 (P1 -> P2: 193)
+P1: 775:  P2: 1125 (P1 -> P2: 193)
+P1: 961:  P2: 939 (P2 -> P1: 186)
