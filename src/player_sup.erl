@@ -76,7 +76,7 @@ init([]) ->
                             [Name, SmtpAddress, SmtpPort]}},
             MaildropServSpec =
                 #{id => maildrop_serv,
-                  start => {maildrop_serv, start_link, [SpoolerDir]}},
+                  start => {maildrop_serv, start_link, [SpoolerDir, false]}},
             SmtpProxyServSpec =
                 #{id => smtp_proxy_serv,
                   start => {smtp_proxy_serv, start_link,

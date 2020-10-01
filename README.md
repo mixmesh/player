@@ -40,4 +40,10 @@ simulator application does.
 
 ## Unit testing
 
-None
+Unit tests can be run separately or all at once:
+
+```
+$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf pop3_proxy_serv
+$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf smtp_proxy_serv
+$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf test/
+```

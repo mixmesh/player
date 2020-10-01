@@ -183,8 +183,8 @@ update_neighbours(Pid, Neighbours) ->
 
 init(Parent, Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
      DegreesToMeters, Simulated) ->
-    <<I1:32, I2:32, I3:32>> = crypto:strong_rand_bytes(12),
-    rand:seed(exsplus, {I1, I2, I3}),
+    %%<<I1:32, I2:32, I3:32>> = crypto:strong_rand_bytes(12),
+    %%rand:seed(exsplus, {I1, I2, I3}),
     Buffer = player_buffer:new(),
     {Keys, LocationGenerator} =
         if
