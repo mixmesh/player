@@ -36,10 +36,6 @@ simulator application does.
   <dd>A buffer in which the player stores encrypted messages it receives from other players. It is not persistent as of today. It should be.</dd>
   <dt>./src/player_config_schema.erl</dt>
   <dd>Player/s has/have its/their own section/s in the Obscrete config file, e.g. see ./obscrete/etc/*.conf. This schema is activated in Obscrete's application file as seen in ./obscrete/ebin/obscrete.app.</dd>
-  <dt>./src/player_db.erl</dt>
-  <dd>SIMULATION: An API towards a public table which players use to store information which in turn is used by the simulator application</dd>
-  <dt>./src/mail_serv.erl</dt>
-  <dd>DEBUG: A server which can be used to send test emails</dd>
 </dl>
 
 ## Unit testing
