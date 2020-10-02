@@ -15,7 +15,7 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
--include_lib("player/include/player_db.hrl").
+-include_lib("simulator/include/player_db.hrl").
 -include_lib("player/include/player_serv.hrl").
 -include_lib("player/include/player_sync_serv.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
@@ -23,10 +23,6 @@
 
 -define(GENERATE_MAIL_TIME, (60 * 1000)).
 -define(PKI_PUSHBACK_TIME, 10000).
-
-%% Spiridon parameters
--define(F, 0.2).
--define(K, 10).
 
 -type message_id() :: integer().
 -type pick_mode() :: is_nothing |
