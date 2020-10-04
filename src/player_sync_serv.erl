@@ -187,13 +187,15 @@ send_messages(_PlayerServPid, Socket, 0, _SkipBufferIndices) ->
     gen_tcp:send(Socket, <<"\r\n">>);
 send_messages(PlayerServPid, Socket, N, SkipBufferIndices) ->
     case player_serv:buffer_pop(PlayerServPid, SkipBufferIndices) of
-        {ok, <<MessageId:64/integer, EncryptedData/binary>>} ->
+        {ok, <<MessageId:64/unsigned-integer,
+               EncryptedData/binary>>} ->
 %% Note: Disabled for now. It grows over time!!! It also seems that after a
 %%       number of rerandomizations messages no longer are the same. Most
 %%       probably this has to do with the message growing. Must be solved!
 %%            RandomizedMessage =
-%%              <<MessageId:64/integer, belgamal:urandomize(EncryptedData)>>,
-            RandomizedMessage = <<MessageId:64/integer, EncryptedData/binary>>,
+%%              <<MessageId:64/unsigned-integer, belgamal:urandomize(EncryptedData)>>,
+            RandomizedMessage = <<MessageId:64/unsigned-integer,
+                                  EncryptedData/binary>>,
             case gen_tcp:send(Socket, RandomizedMessage) of
                 ok ->
                     send_messages(PlayerServPid, Socket, N - 1,
@@ -214,7 +216,8 @@ receive_messages(PlayerServPid, #player_sync_serv_options{
     case gen_tcp:recv(Socket, 0, RecvTimeout) of
         {ok, <<"\r\n">>} ->
             {ok, NewBufferIndices};
-        {ok, <<MessageId:64/integer, EncryptedData/binary>> = Message} ->
+        {ok, <<MessageId:64/unsigned-integer,
+               EncryptedData/binary>> = Message} ->
             case belgamal:udecrypt(EncryptedData, SecretKey) of
                 mismatch ->
                     BufferIndex =

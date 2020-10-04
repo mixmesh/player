@@ -1,4 +1,4 @@
--module(unit_test_pop3_proxy_serv).
+-module(test_pop3_proxy_serv).
 -export([start/0]).
 
 %% NOTE: mpop must be installed to run this test

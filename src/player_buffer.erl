@@ -5,6 +5,7 @@
 -export([member/2]).
 -export([foldl/3]).
 
+-include_lib("apptools/include/log.hrl").
 -include_lib("player/include/player_buffer.hrl").
 
 -define(LARGEST_POSITIVE_INTEGER, trunc(math:pow(2, 28) / 2)).

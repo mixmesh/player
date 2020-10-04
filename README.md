@@ -36,14 +36,24 @@ simulator application does.
   <dd>A buffer in which the player stores encrypted messages it receives from other players. It is not persistent as of today. It should be.</dd>
   <dt>./src/player_config_schema.erl</dt>
   <dd>Player/s has/have its/their own section/s in the Obscrete config file, e.g. see ./obscrete/etc/*.conf. This schema is activated in Obscrete's application file as seen in ./obscrete/ebin/obscrete.app.</dd>
+  <dt>./test/test_pop3_proxy_serv.erl</dt>
+  <dd>Test for the pop3_proxy_serv module</dd>
+  <dt>./test/test_smtp_proxy_serv.erl</dt>
+  <dd>Test for the smtp_proxy_serv module</dd>
 </dl>
 
-## Unit testing
+## Testing
 
-Unit tests can be run separately or all at once:
+`make runtest` runs all tests, i.e.
 
 ```
-$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf pop3_proxy_serv
-$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf smtp_proxy_serv
-$ ../obscrete/bin/unit_test --config ../obscrete/etc/obscrete.conf test/
+$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf test/
+```
+
+Tests can be run individually as well:
+
+```
+$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf pop3_proxy_serv
+$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf smtp_proxy_serv
+
 ```

@@ -179,8 +179,7 @@ update_neighbours(Pid, Neighbours) ->
 
 init(Parent, Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
      DegreesToMeters, Simulated) ->
-    %%<<I1:32, I2:32, I3:32>> = crypto:strong_rand_bytes(12),
-    %%rand:seed(exsplus, {I1, I2, I3}),
+    rand:seed(exsss),
     Buffer = player_buffer:new(),
     {Keys, LocationGenerator} =
         if
@@ -341,7 +340,7 @@ message_handler(
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
-                                      buffer_size = player_buffer:size(buffer),
+                                      buffer_size = player_buffer:size(Buffer),
                                       pick_mode = NewPickMode});
                       true ->
                           true
@@ -353,7 +352,7 @@ message_handler(
           end;
       {call, From,
        {buffer_push,
-        <<MessageId:64/integer, _EncryptedData/binary>> = Message}} ->
+        <<MessageId:64/unsigned-integer, _EncryptedData/binary>> = Message}} ->
           case target_message_id(PickMode) of
               MessageId ->
                   ?dbg_log({forwarding_target_message, Name, MessageId});
@@ -367,7 +366,7 @@ message_handler(
                   true = player_db:update(
                            #db_player{
                               name = Name,
-                              buffer_size = player_buffer:size(buffer),
+                              buffer_size = player_buffer:size(Buffer),
                               pick_mode = NewPickMode}),
                   true = stats_db:message_buffered(Name);
               true ->
@@ -378,7 +377,7 @@ message_handler(
           {reply, From, player_buffer:size(Buffer)};
       {got_message, _, _} when IsZombie ->
           noreply;
-      {got_message, MessageId, <<MessageId:64/integer,
+      {got_message, MessageId, <<MessageId:64/unsigned-integer,
                                  SenderNameSize:8,
                                  SenderName:SenderNameSize/binary,
                                  Letter/binary>>} ->
@@ -426,18 +425,19 @@ message_handler(
                   NameSize = size(Name),
                   EncryptedData =
                       belgamal:uencrypt(
-                        <<MessageId:64/integer,
+                        <<MessageId:64/unsigned-integer,
                           NameSize:8,
                           Name/binary,
                           Letter/binary>>, RecipientPublicKey),
-                  Message = <<MessageId:64/integer, EncryptedData/binary>>,
+                  Message = <<MessageId:64/unsigned-integer,
+                              EncryptedData/binary>>,
                   _ = player_buffer:push_many(Buffer, Message, ?K),
                   if
                       Simulated ->
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
-                                      buffer_size = player_buffer:size(buffer),
+                                      buffer_size = player_buffer:size(Buffer),
                                       pick_mode = PickMode}),
                           true = stats_db:message_created(
                                    MessageId, Name, RecipientName);
@@ -452,17 +452,18 @@ message_handler(
           RecipientName = <<"p1">>,
           {ok, RecipientPublicKey} = read_public_key(RecipientName),
           perform(fun() ->
-                          MessageId = erlang:unique_integer(),
+                          MessageId = erlang:unique_integer([positive]),
                           NameSize = size(Name),
                           Letter = <<"foo\r\n\r\n">>,
                           EncryptedData =
                               belgamal:uencrypt(
-                                <<MessageId:64/integer,
+                                <<MessageId:64/unsigned-integer,
                                   NameSize:8,
                                   Name/binary,
                                   Letter/binary>>, RecipientPublicKey),
                           Message =
-                              <<MessageId:64/integer, EncryptedData/binary>>,
+                              <<MessageId:64/unsigned-integer,
+                                EncryptedData/binary>>,
                           _ = player_buffer:push_many(Buffer, Message, ?K),
                           if
                               Simulated ->
@@ -477,7 +478,7 @@ message_handler(
                   true = player_db:update(
                            #db_player{
                               name = Name,
-                              buffer_size = player_buffer:size(buffer),
+                              buffer_size = player_buffer:size(Buffer),
                               pick_mode = PickMode});
               true ->
                   true
@@ -492,7 +493,6 @@ message_handler(
           noreply;
       stop_generating_mail ->
           {noreply, State#state{generate_mail = false}};
-
       {update_neighbours, _NewNeighbours} when IsZombie ->
           noreply;
       {update_neighbours, NewNeighbours} ->
@@ -618,7 +618,8 @@ calculate_pick_mode(Buffer, {is_forwarder, {_, MessageId}}) ->
     IsMember =
         player_buffer:member(
           Buffer,
-          fun(<<BufferMessageId:64/integer, _EncryptedData/binary>>)
+          fun(<<BufferMessageId:64/unsigned-integer,
+                _EncryptedData/binary>>)
                 when BufferMessageId == MessageId ->
                   true;
              (_) ->
