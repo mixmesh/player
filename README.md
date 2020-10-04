@@ -46,14 +46,11 @@ simulator application does.
 
 `make runtest` runs all tests, i.e.
 
-```
-$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf test/
-```
+`$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf test/`
 
 Tests can be run individually as well:
 
 ```
 $ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf pop3_proxy_serv
 $ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf smtp_proxy_serv
-
 ```
