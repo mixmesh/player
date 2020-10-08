@@ -10,7 +10,6 @@
 -export([add_dummy_messages/2]).
 -export([start_location_updating/1]).
 -export([stop_generating_mail/1]).
--export([update_neighbours/2]).
 -export_type([message_id/0, pick_mode/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -37,7 +36,7 @@
          name                        :: binary(),
          mail_serv_pid = not_set     :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
-         sync_address                :: inet:ip_address(),
+         sync_ip_address             :: inet:ip4_address(),
          sync_port                   :: inet:port_number(),
          temp_dir                    :: binary(),
          buffer                      :: ets:tid(),
@@ -49,21 +48,23 @@
          degrees_to_meters           :: fun(),
          x = none                    :: integer() | none,
          y = none                    :: integer() | none,
-         neighbours = []             :: [#player{}],
+         neighbours = []             :: [{{inet:ip4_address(),
+                                           inet:port_number()}, pid() | none}],
          is_zombie = false           :: boolean(),
          picked_as_source = false    :: boolean(),
          pick_mode = is_nothing      :: pick_mode(),
          paused = false              :: boolean(),
          meters_moved = 0            :: integer(),
-         simulated                   :: boolean()}).
+         simulated                   :: boolean(),
+         nodis_subscription          :: reference() | undefined}).
 
 %% Exported: start_link
 
-start_link(Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
+start_link(Name, SyncIpAddress, SyncPort, TempDir, GetLocationGenerator,
            DegreesToMeters, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, SyncAddress, SyncPort, TempDir,
+               init(Parent, Name, SyncIpAddress, SyncPort, TempDir,
                     GetLocationGenerator, DegreesToMeters, Simulated)
        end,
        fun initial_message_handler/1).
@@ -71,10 +72,13 @@ start_link(Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
 initial_message_handler(State) ->
     receive
         {sibling_pid, [{mail_serv, MailServPid},
-                       {maildrop_serv, MaildropServPid}]} ->
+                       {maildrop_serv, MaildropServPid},
+                       {nodis_serv, NodisServPid}]} ->
+            {ok, NodisSubscription} = nodis_srv:subscribe(NodisServPid),
             {swap_message_handler, fun message_handler/1,
              State#state{mail_serv_pid = MailServPid,
-                         maildrop_serv_pid = MaildropServPid}}
+                         maildrop_serv_pid = MaildropServPid,
+                         nodis_subscription = NodisSubscription}}
     end.
 
 %% Exported: stop
@@ -85,38 +89,32 @@ stop(Pid) ->
 %% Exported: pause
 
 pause(Pid) ->
-    Pid ! pause,
-    ok.
+    serv:cast(Pid, pause).
 
 %% Exported: resume
 
 resume(Pid) ->
-    Pid ! resume,
-    ok.
+    serv:cast(Pid, resume).
 
 %% Exported: become_forwarder
 
 become_forwarder(Pid, MessageId) ->
-    Pid ! {become_forwarder, MessageId},
-    ok.
+    serv:cast(Pid, {become_forwarder, MessageId}).
 
 %% Exported: become_nothing
 
 become_nothing(Pid) ->
-    Pid ! become_nothing,
-    ok.
+    serv:cast(Pid, become_nothing).
 
 %% Exported: become_source
 
 become_source(Pid, TargetName, MessageId) ->
-    Pid ! {become_source, TargetName, MessageId},
-    ok.
+    serv:cast(Pid, {become_source, TargetName, MessageId}).
 
 %% Exported: become_target
 
 become_target(Pid, MessageId) ->
-    Pid ! {become_target, MessageId},
-    ok.
+    serv:cast(Pid, {become_target, MessageId}).
 
 %% Exported: buffer_pop
 
@@ -136,14 +134,12 @@ buffer_size(Pid) ->
 %% Exported: got_message
 
 got_message(Pid, MessageId, DecryptedData) ->
-    Pid !  {got_message, MessageId, DecryptedData},
-    ok.
+    serv:cast(Pid, {got_message, MessageId, DecryptedData}).
 
 %% Exported: pick_as_source
 
 pick_as_source(Pid) ->
-    Pid ! pick_as_source,
-    ok.
+    serv:cast(Pid, pick_as_source).
 
 %% Exported: send_message
 
@@ -158,26 +154,18 @@ add_dummy_messages(Pid, N) ->
 %% Exported: start_location_updating
 
 start_location_updating(Pid) ->
-    Pid ! start_location_updating,
-    ok.
+    serv:cast(Pid, start_location_updating).
 
 %% Exported: stop_generating_mail
 
 stop_generating_mail(Pid) ->
-    Pid ! stop_generating_mail,
-    ok.
-
-%% Exported: update_neighbours
-
-update_neighbours(Pid, Neighbours) ->
-    Pid ! {update_neighbours, Neighbours},
-    ok.
+    serv:cast(Pid, stop_generating_mail).
 
 %%
 %% Server
 %%
 
-init(Parent, Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
+init(Parent, Name, SyncIpAddress, SyncPort, TempDir, GetLocationGenerator,
      DegreesToMeters, Simulated) ->
     rand:seed(exsss),
     Buffer = player_buffer:new(),
@@ -199,7 +187,7 @@ init(Parent, Name, SyncAddress, SyncPort, TempDir, GetLocationGenerator,
     ?daemon_tag_log(system, "Player server for ~s has been started", [Name]),
     {ok, #state{parent = Parent,
                 name = Name,
-                sync_address = SyncAddress,
+                sync_ip_address = SyncIpAddress,
                 sync_port = SyncPort,
                 temp_dir = TempDir,
                 buffer = Buffer,
@@ -267,7 +255,7 @@ message_handler(
          name = Name,
          mail_serv_pid = MailServPid,
          maildrop_serv_pid = MaildropServPid,
-         sync_address = SyncAddress,
+         sync_ip_address = SyncIpAddress,
          sync_port = SyncPort,
          temp_dir = TempDir,
          buffer = Buffer,
@@ -284,15 +272,16 @@ message_handler(
          pick_mode = PickMode,
          paused = Paused,
          meters_moved = MetersMoved,
-         simulated = Simulated} = State) ->
+         simulated = Simulated,
+         nodis_subscription = NodisSubscription} = State) ->
   receive
       {call, From, stop} ->
           {stop, From, ok};
-      pause ->
+      {cast, pause} ->
           {noreply, State#state{paused = true}};
-      resume ->
+      {cast, resume} ->
           {noreply, State#state{paused = false}};
-      {become_forwarder, MessageId} ->
+      {cast, {become_forwarder, MessageId}} ->
           NewPickMode = {is_forwarder, {message_not_in_buffer, MessageId}},
           if
               Simulated ->
@@ -302,7 +291,7 @@ message_handler(
                   true
           end,
           {noreply, State#state{pick_mode = NewPickMode}};
-      become_nothing ->
+      {cast, become_nothing} ->
           if
               Simulated ->
                   true = player_db:update(#db_player{name = Name,
@@ -311,7 +300,7 @@ message_handler(
                   true
           end,
           {noreply, State#state{pick_mode = is_nothing}};
-      {become_source, TargetName, MessageId} ->
+      {cast, {become_source, TargetName, MessageId}} ->
           NewPickMode = {is_source, {TargetName, MessageId}},
           if
               Simulated ->
@@ -321,7 +310,7 @@ message_handler(
                   true
           end,
           {noreply, State#state{pick_mode = NewPickMode}};
-      {become_target, MessageId} ->
+      {cast, {become_target, MessageId}} ->
           NewPickMode = {is_target, MessageId},
           if
               Simulated ->
@@ -375,12 +364,12 @@ message_handler(
           {reply, From, BufferIndex, State#state{pick_mode = NewPickMode}};
       {call, From, buffer_size} ->
           {reply, From, player_buffer:size(Buffer)};
-      {got_message, _, _} when IsZombie ->
+      {cast, {got_message, _, _}} when IsZombie ->
           noreply;
-      {got_message, MessageId, <<MessageId:64/unsigned-integer,
-                                 SenderNameSize:8,
-                                 SenderName:SenderNameSize/binary,
-                                 Letter/binary>>} ->
+      {cast, {got_message, MessageId, <<MessageId:64/unsigned-integer,
+                                        SenderNameSize:8,
+                                        SenderName:SenderNameSize/binary,
+                                        Letter/binary>>}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
                   %%io:format("GOT MESSAGE: ~p\n", [{Name, SenderName}]),
@@ -417,7 +406,7 @@ message_handler(
                   end,
                   noreply
           end;
-      pick_as_source ->
+      {cast, pick_as_source} ->
           {noreply, State#state{picked_as_source = true}};
       {call, From, {send_message, MessageId, RecipientName, Letter}} ->
           case read_public_key(RecipientName) of
@@ -484,44 +473,105 @@ message_handler(
                   true
           end,
           {reply, From, ok};
-      start_location_updating ->
+      {cast, start_location_updating} ->
           SendMailTime =
               trunc(?GENERATE_MAIL_TIME / 10 +
                         ?GENERATE_MAIL_TIME / 2 * rand:uniform()),
           erlang:send_after(SendMailTime, self(), generate_mail),
           self() ! {location_updated, 0},
           noreply;
-      stop_generating_mail ->
+      {cast, stop_generating_mail} ->
           {noreply, State#state{generate_mail = false}};
-      {update_neighbours, _NewNeighbours} when IsZombie ->
-          noreply;
-      {update_neighbours, NewNeighbours} ->
-          ?dbg_log({got_new_neighbours, Name, NewNeighbours}),
-          lists:foreach(
-            fun(#player{sync_address = NeighbourSyncAddress,
-                        sync_port = NeighbourSyncPort})
-                  when {SyncAddress, SyncPort} >
-                       {NeighbourSyncAddress, NeighbourSyncPort} ->
-                    _ = player_sync_serv:connect(
-                          self(),
-                          NeighbourSyncPort,
-                          #player_sync_serv_options{
-                             address = NeighbourSyncAddress,
-                             f = ?F,
-                             keys = Keys});
-               (_) ->
-                    wait_for_neighbour
-            end, lists:subtract(NewNeighbours, Neighbours)),
-          if
-              Simulated ->
-                  true = player_db:update(
-                           #db_player{
-                              name = Name,
-                              neighbours = get_names(NewNeighbours)});
+      %%
+      %% Nodis subscription events
+      %%
+      {nodis, NodisSubscription,
+       {up, {Ip0, Ip1, Ip2, Ip3, NeighbourSyncPort} = NeighbourSyncAddress}} ->
+          ?dbg_tag_log(nodis, {up, NeighbourSyncAddress}),
+          NeighbourSyncIpAddress = {Ip0, Ip1, Ip2, Ip3},
+          case lists:keymember({NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
+                               Neighbours) of
+              false ->
+                  case {SyncIpAddress, SyncPort} >
+                      {NeighbourSyncIpAddress, NeighbourSyncPort} of
+                      true ->
+                          {ok, Pid} = player_sync_serv:connect(
+                                        self(),
+                                        NeighbourSyncPort,
+                                        #player_sync_serv_options{
+                                           ip_address = NeighbourSyncIpAddress,
+                                           f = ?F,
+                                           keys = Keys});
+                      false ->
+                          Pid = none
+                  end,
+                  NewNeighbours =
+                      [{{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}|
+                       Neighbours],
+                  if
+                      Simulated ->
+                          true = player_db:update(
+                                   #db_player{
+                                      name = Name,
+                                      neighbours =
+                                          simulator_serv:get_player_names(
+                                            NewNeighbours)});
+                      true ->
+                          true
+                  end,
+                  {noreply, State#state{neighbours = NewNeighbours}};
               true ->
-                  true
-          end,
-          {noreply, State#state{neighbours = NewNeighbours}};
+                  noreply
+          end;
+      
+      {nodis, NodisSubscription,
+       {down,
+        {Ip0, Ip1, Ip2, Ip3, NeighbourSyncPort}} = NeighbourSyncAddress} ->
+          ?dbg_tag_log(nodis, {down, NeighbourSyncAddress}),
+          NeighbourSyncIpAddress = {Ip0, Ip1, Ip2, Ip3},
+          case lists:keysearch({NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
+                               Neighbours) of
+              {value, {_, Pid}} ->
+                  if
+                      is_pid(Pid) ->
+                          exit(Pid, die);
+                      true ->
+                          ok
+                  end,
+                  NewNeighbours =
+                      lists:keydelete(
+                        {NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
+                        Neighbours),
+                  if
+                      Simulated ->
+                          true = player_db:update(
+                                   #db_player{
+                                      name = Name,
+                                      neighbours =
+                                          simulator_serv:get_player_names(
+                                            NewNeighbours)});
+                      true ->
+                          ok
+                  end,
+                  {noreply, State#state{neighbours = NewNeighbours}};
+              false ->
+                  noreply
+          end;
+      {nodis, NodisSubscription, {missed, NeighbourAddress}} ->
+          ?dbg_tag_log(nodis, {missed, NeighbourAddress}),
+          noreply;
+      {'EXIT', Pid, _Reason} = UnknownMessage ->
+          case lists:keysearch(Pid, 2, Neighbours) of
+              {value, {{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}} ->
+                  NewNeighbours =
+                      lists:keyreplace(
+                        Pid, 2, Neighbours,
+                        {{NeighbourSyncIpAddress, NeighbourSyncPort}, none}),
+                  {noreply, State#state{neighbours = NewNeighbours}};
+              false ->
+                  ?error_log({unknown_message, UnknownMessage}),
+                  noreply
+          end;
       %%
       %% Below follows handling of internally generated messages
       %%
@@ -568,7 +618,8 @@ message_handler(
                                               name = Name,
                                               x = NextX,
                                               y = NextY,
-                                              buffer_size = player_buffer:size(Buffer),
+                                              buffer_size =
+                                                  player_buffer:size(Buffer),
                                               pick_mode = PickMode});
                               true ->
                                   true
@@ -633,11 +684,6 @@ calculate_pick_mode(Buffer, {is_forwarder, {_, MessageId}}) ->
     end;
 calculate_pick_mode(_Buffer, PickMode) ->
     PickMode.
-
-get_names([]) ->
-    [];
-get_names([#player{name = Name}|Rest]) ->
-    [Name|get_names(Rest)].
 
 %% print_speed(_DegreesToMeters, _X, _Y, _MetersMoved, 0, _NextX, _NextY) ->
 %%     ok;

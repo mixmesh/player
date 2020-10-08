@@ -74,4 +74,10 @@ get() ->
           #json_type{
              name = ipv4address_port,
              typical = {{242,45,0,34}, 30000},
+             reloadable = false}}]},
+       {pki,
+        [{'data-dir',
+          #json_type{
+             name = writable_directory,
+             typical = <<"/var/obscrete/players/johndoe/pki/data">>,
              reloadable = false}}]}]}].

@@ -1,6 +1,6 @@
 -module(player_sup).
 -behaviour(supervisor).
--export([start_link/0, start_link/13]).
+-export([start_link/0, start_link/14]).
 -export([attach_child/3]).
 -export([init/1]).
 
@@ -11,16 +11,17 @@ start_link() ->
 
 start_link(Name, Password, SyncAddress, SyncPort, TempDir, F,
            GetLocationGenerator, DegreesToMeter, SmtpAddress, SmtpPort,
-           SpoolerDir, Pop3Address, Pop3Port) ->
+           SpoolerDir, Pop3Address, Pop3Port, PkiDataDir) ->
     start_link([Name, Password, SyncAddress, SyncPort, TempDir, F,
                 GetLocationGenerator, DegreesToMeter, SmtpAddress, SmtpPort,
-                SpoolerDir, Pop3Address, Pop3Port]).
+                SpoolerDir, Pop3Address, Pop3Port, PkiDataDir]).
 
 start_link(Args) ->
     case supervisor:start_link(?MODULE, Args) of
         {ok, Pid} ->
             Children = supervisor:which_children(Pid),
-            ok = attach_child(player_serv, [mail_serv, maildrop_serv],
+            ok = attach_child(player_serv,
+                              [mail_serv, maildrop_serv, nodis_serv],
                               Children),
             ok = attach_child(player_sync_serv, player_serv, Children),
             ok = attach_child(smtp_proxy_serv, player_serv, Children),
@@ -63,6 +64,7 @@ init([]) ->
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
     [{SmtpAddress, SmtpPort}] = config:lookup_children([address], SmtpProxy),
     [{Pop3Address, Pop3Port}] = config:lookup_children([address], Pop3Proxy),
+    PkiDataDir = config:lookup([player, pki, 'data-dir']),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -74,12 +76,10 @@ init([]) ->
                     [Name, SyncAddress, SyncPort, F, false]}},
     MailServSpec =
         #{id => mail_serv,
-          start => {mail_serv, start_link,
-                    [Name, SmtpAddress, SmtpPort]}},
+          start => {mail_serv, start_link, [Name, SmtpAddress, SmtpPort]}},
     MaildropServSpec =
         #{id => maildrop_serv,
-          start => {maildrop_serv, start_link,
-                    [SpoolerDir, false]}},
+          start => {maildrop_serv, start_link, [SpoolerDir, false]}},
     SmtpProxyServSpec =
         #{id => smtp_proxy_serv,
           start => {smtp_proxy_serv, start_link,
@@ -88,15 +88,23 @@ init([]) ->
         #{id => pop3_proxy_serv,
           start => {pop3_proxy_serv, start_link,
                     [Name, Password, TempDir, Pop3Address, Pop3Port]}},
+    NodisServSpec =
+        #{id => nodis_serv,
+          start => {nodis_srv, start_link_sim, []}},
+    PkiServSpec =
+        #{id => pki_serv,
+          start => {pki_serv, start_link, [none, PkiDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
                                        MaildropServSpec,
                                        SmtpProxyServSpec,
-                                       Pop3ProxyServSpec]}};
+                                       Pop3ProxyServSpec,
+                                       NodisServSpec,
+                                       PkiServSpec]}};
 init([Name, Password, SyncAddress, SyncPort, TempDir, F, GetLocationGenerator,
       DegreesToMeter, SmtpAddress, SmtpPort, SpoolerDir, Pop3Address,
-      Pop3Port]) ->
+      Pop3Port, PkiDataDir]) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -122,9 +130,17 @@ init([Name, Password, SyncAddress, SyncPort, TempDir, F, GetLocationGenerator,
         #{id => pop3_proxy_serv,
           start => {pop3_proxy_serv, start_link,
                     [Name, Password, TempDir, Pop3Address, Pop3Port]}},
+    NodisServSpec =
+        #{id => nodis_serv,
+          start => {nodis_srv, start_link_sim, []}},
+    PkiServSpec =
+        #{id => pki_serv,
+          start => {pki_serv, start_link, [none, PkiDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
                                        MaildropServSpec,
                                        SmtpProxyServSpec,
-                                       Pop3ProxyServSpec]}}.
+                                       Pop3ProxyServSpec,
+                                       NodisServSpec,
+                                       PkiServSpec]}}.

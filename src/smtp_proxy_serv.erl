@@ -22,7 +22,7 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, Address, Port, Simulated) ->
+start_link(Name, Password, TempDir, IpAddress, Port, Simulated) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -56,8 +56,8 @@ start_link(Name, Password, TempDir, Address, Port, Simulated) ->
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_tag_log(system, "SMTP proxy starting for ~s on ~s:~w",
-                    [Name, inet:ntoa(Address), Port]),
-    smtplib:start_link(Address, Port, Options).
+                    [Name, inet:ntoa(IpAddress), Port]),
+    smtplib:start_link(IpAddress, Port, Options).
 
 check_credentials(#state{name = Name, password = Password}, _Autczid, Authcid,
                   LoginPassword) ->

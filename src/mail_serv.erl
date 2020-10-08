@@ -13,15 +13,15 @@
 -record(state,
         {parent                    :: pid(),
          name                      :: binary(),
-         smtp_address              :: inet:ip_address(),
+         smtp_ip_address           :: inet:ip4_address(),
          smtp_port                 :: inet:port_number(),
          smtp_password = <<"baz">> :: binary()}).
 
 %% Exported: start_link
 
-start_link(Name, SmtpAddress, SmtpPort) ->
+start_link(Name, SmtpIpAddress, SmtpPort) ->
     ?spawn_server(
-       fun(Parent) -> init(Parent, Name, SmtpAddress, SmtpPort) end,
+       fun(Parent) -> init(Parent, Name, SmtpIpAddress, SmtpPort) end,
        fun message_handler/1).
 
 %% Exported: stop
@@ -32,29 +32,30 @@ stop(Pid) ->
 %% Exported: send_mail
 
 send_mail(Pid, RecipientName, PickedAsSource, Letter) ->
-    Pid ! {send_mail, RecipientName, PickedAsSource, Letter},
-    ok.
+    serv:cast(Pid, {send_mail, RecipientName, PickedAsSource, Letter}).
 
 %%
 %% Server
 %%
 
-init(Parent, Name, SmtpAddress, SmtpPort) ->
+init(Parent, Name, SmtpIpAddress, SmtpPort) ->
     ?daemon_tag_log(system, "SMTP server for ~s has been started", [Name]),
-    {ok, #state{parent = Parent, name = Name, smtp_address = SmtpAddress,
+    {ok, #state{parent = Parent,
+                name = Name,
+                smtp_ip_address = SmtpIpAddress,
                 smtp_port = SmtpPort}}.
 
 message_handler(#state{parent = Parent,
                        name = Name,
-                       smtp_address = SmtpAddress,
+                       smtp_ip_address = SmtpIpAddress,
                        smtp_port = SmtpPort,
                        smtp_password = SmtpPassword}) ->
     receive
         {call, From, stop} ->
             {stop, From, ok};
-        {send_mail, RecipientName, PickedAsSource, Letter} ->
-            "" = swaks(Name, RecipientName, SmtpAddress, SmtpPort, SmtpPassword,
-                       PickedAsSource, Letter),
+        {cast, {send_mail, RecipientName, PickedAsSource, Letter}} ->
+            "" = swaks(Name, RecipientName, SmtpIpAddress, SmtpPort,
+                       SmtpPassword, PickedAsSource, Letter),
             noreply;
         {system, From, Request} ->
             {system, From, Request};

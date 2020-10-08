@@ -18,7 +18,7 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, Address, Port) ->
+start_link(Name, Password, TempDir, IpAddress, Port) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -48,8 +48,8 @@ start_link(Name, Password, TempDir, Address, Port) ->
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_tag_log(system, "POP3 proxy starting for ~s on ~s:~w",
-                    [Name, inet:ntoa(Address), Port]),
-    pop3lib:start_link(Address, Port, Options).
+                    [Name, inet:ntoa(IpAddress), Port]),
+    pop3lib:start_link(IpAddress, Port, Options).
 
 check_credentials(#state{name = Name, password = Password}, LoginName,
                   LoginPassword) ->

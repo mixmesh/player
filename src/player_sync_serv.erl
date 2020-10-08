@@ -19,16 +19,16 @@
 %% Exported: connect
 
 connect(PlayerServPid, Port, Options) ->
-  Pid = proc_lib:spawn(fun() ->
-                               connect_now(PlayerServPid, Port, Options)
-                       end),
-  {ok, Pid}.
+    Pid = proc_lib:spawn_link(
+            fun() -> connect_now(PlayerServPid, Port, Options) end),
+    {ok, Pid}.
 
 connect_now(PlayerServPid, Port, #player_sync_serv_options{
-                                    address = Address,
+                                    ip_address = IpAddress,
                                     connect_timeout = ConnectTimeout,
                                     f = F} = Options) ->
-    case gen_tcp:connect(Address, Port, [{active, false}, binary, {packet, 2}],
+    case gen_tcp:connect(IpAddress, Port,
+                         [{active, false}, binary, {packet, 2}],
                          ConnectTimeout) of
         {ok, Socket} ->
             M = erlang:trunc(?PLAYER_BUFFER_MAX_SIZE * F),
@@ -66,11 +66,11 @@ connect_now(PlayerServPid, Port, #player_sync_serv_options{
 
 %% Exported: start_link
 
-start_link(Name, Address, Port, F, Simulated) ->
+start_link(Name, IpAddress, Port, F, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Name, Port,
-                    #player_sync_serv_options{address = Address, f = F},
+                    #player_sync_serv_options{ip_address = IpAddress, f = F},
                     Simulated)
        end,
        fun initial_message_handler/1).
@@ -86,7 +86,7 @@ stop(Pid) ->
 
 init(Parent, Name, Port,
      #player_sync_serv_options{
-        address = Address} = Options, Simulated) ->
+        ip_address = IpAddress} = Options, Simulated) ->
     if
         Simulated ->
             {ok, Keys} = simulator_pki_serv:get_keys(Name);
@@ -97,9 +97,11 @@ init(Parent, Name, Port,
             Keys = {PublicKey, SecretKey}
     end,
     {ok, ListenSocket} =
-        gen_tcp:listen(Port, [{active, false}, {ip, Address}, binary,
+        gen_tcp:listen(Port, [{active, false}, {ip, IpAddress}, binary,
                               {packet, 2}, {reuseaddr, true}]),
     self() ! accepted,
+    ?daemon_tag_log(system, "Player sync server starting for ~s on ~s:~w",
+                    [Name, inet:ntoa(IpAddress), Port]),
     {ok, #state{parent = Parent,
                 options = Options#player_sync_serv_options{keys = Keys},
                 listen_socket = ListenSocket,
