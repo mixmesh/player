@@ -66,12 +66,13 @@ connect_now(PlayerServPid, Port, #player_sync_serv_options{
 
 %% Exported: start_link
 
-start_link(Name, IpAddress, Port, F, Simulated) ->
+start_link(Name, IpAddress, Port, F, Keys) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Name, Port,
-                    #player_sync_serv_options{ip_address = IpAddress, f = F},
-                    Simulated)
+                    #player_sync_serv_options{ip_address = IpAddress,
+                                              f = F,
+                                              keys = Keys})
        end,
        fun initial_message_handler/1).
 
@@ -86,16 +87,7 @@ stop(Pid) ->
 
 init(Parent, Name, Port,
      #player_sync_serv_options{
-        ip_address = IpAddress} = Options, Simulated) ->
-    if
-        Simulated ->
-            {ok, Keys} = simulator_pki_serv:get_keys(Name);
-        true ->
-            [PublicKey, SecretKey] =
-                config:lookup_children(['public-key', 'secret-key'],
-                                       config:lookup([player, spiridon])),
-            Keys = {PublicKey, SecretKey}
-    end,
+        ip_address = IpAddress} = Options) ->
     {ok, ListenSocket} =
         gen_tcp:listen(Port, [{active, false}, {ip, IpAddress}, binary,
                               {packet, 2}, {reuseaddr, true}]),
@@ -103,7 +95,7 @@ init(Parent, Name, Port,
     ?daemon_tag_log(system, "Player sync server starting for ~s on ~s:~w",
                     [Name, inet:ntoa(IpAddress), Port]),
     {ok, #state{parent = Parent,
-                options = Options#player_sync_serv_options{keys = Keys},
+                options = Options,
                 listen_socket = ListenSocket,
                 acceptors = []}}.
 

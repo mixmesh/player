@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/7, stop/1]).
+-export([start_link/9, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -30,7 +30,7 @@
                        message_in_buffer, message_id()}} |
                      {is_source, {TargetName :: binary(), message_id()}} |
                      {is_target, message_id()}.
-                     
+
 -record(state,
         {parent                      :: pid(),
          name                        :: binary(),
@@ -42,7 +42,7 @@
          buffer                      :: ets:tid(),
          received_messages = []      :: [integer()],
          generate_mail = false       :: boolean(),
-         keys                        :: {#pk{}, #sk{}},     
+         keys                        :: {#pk{}, #sk{}},
          reply_keys = not_set        :: {#pk{}, #sk{}} | not_set,
          location_generator          :: fun(),
          degrees_to_meters           :: fun(),
@@ -60,12 +60,12 @@
 
 %% Exported: start_link
 
-start_link(Name, SyncIpAddress, SyncPort, TempDir, GetLocationGenerator,
-           DegreesToMeters, Simulated) ->
+start_link(Name, Password, SyncIpAddress, SyncPort, TempDir, Keys,
+           GetLocationGenerator, DegreesToMeters, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, SyncIpAddress, SyncPort, TempDir,
-                    GetLocationGenerator, DegreesToMeters, Simulated)
+               init(Parent, Name, Password, SyncIpAddress, SyncPort, TempDir,
+                    Keys, GetLocationGenerator, DegreesToMeters, Simulated)
        end,
        fun initial_message_handler/1).
 
@@ -165,25 +165,18 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, SyncIpAddress, SyncPort, TempDir, GetLocationGenerator,
-     DegreesToMeters, Simulated) ->
+init(Parent, Name, Password, SyncIpAddress, SyncPort, TempDir,
+     {PublicKey, _SecretKey} = Keys, GetLocationGenerator, DegreesToMeters,
+     Simulated) ->
     rand:seed(exsss),
     Buffer = player_buffer:new(),
-    {Keys, LocationGenerator} =
-        if
-            Simulated ->
-                {ok, {PublicKey, _} = NewKeys} =
-                    simulator_pki_serv:get_keys(Name),
-                ok = publish_public_key(Name, <<"baz">>, PublicKey),
-                {NewKeys, GetLocationGenerator()};
-            true ->
-                Password = config:lookup([player, password]),
-                [PublicKey, SecretKey] =
-                    config:lookup_children(['public-key', 'secret-key'],
-                                           config:lookup([player, spiridon])),
-                ok = publish_public_key(Name, Password, PublicKey),
-                {{PublicKey, SecretKey}, not_set}
-        end,
+    ok = publish_public_key(Name, Password, PublicKey),
+    if
+        Simulated ->
+            LocationGenerator = GetLocationGenerator();
+        true ->
+            LocationGenerator = not_set
+    end,
     ?daemon_tag_log(system, "Player server for ~s has been started", [Name]),
     {ok, #state{parent = Parent,
                 name = Name,
