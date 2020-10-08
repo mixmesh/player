@@ -523,7 +523,6 @@ message_handler(
               true ->
                   noreply
           end;
-      
       {nodis, NodisSubscription,
        {down,
         {Ip0, Ip1, Ip2, Ip3, NeighbourSyncPort}} = NeighbourSyncAddress} ->
@@ -560,6 +559,8 @@ message_handler(
       {nodis, NodisSubscription, {missed, NeighbourAddress}} ->
           ?dbg_tag_log(nodis, {missed, NeighbourAddress}),
           noreply;
+      {'EXIT', Parent, Reason} ->
+          exit(Reason);
       {'EXIT', Pid, _Reason} = UnknownMessage ->
           case lists:keysearch(Pid, 2, Neighbours) of
               {value, {{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}} ->
@@ -640,8 +641,6 @@ message_handler(
           end;
       {system, From, Request} ->
           {system, From, Request};
-      {'EXIT', Parent, Reason} ->
-          exit(Reason);
       UnknownMessage ->
           ?error_log({unknown_message, UnknownMessage}),
           noreply
