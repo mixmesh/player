@@ -571,7 +571,7 @@ message_handler(
       %%
       generate_mail when not IsZombie andalso GenerateMail ->
           {RecipientName, _RecipientPublicKey} =
-              simulator_pki_serv:get_random_player(Name),
+              simulator_serv:get_random_player(Name),
           ok = mail_serv:send_mail(
                  MailServPid, RecipientName, PickedAsSource, <<"FOO">>),
           erlang:send_after(?GENERATE_MAIL_TIME, self(), generate_mail),
