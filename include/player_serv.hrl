@@ -9,9 +9,7 @@
         {name            :: binary(),
          player_serv_pid :: pid(),
          nodis_serv_pid  :: pid(),
-         sync_ip_address :: inet:ip4_address(),
-         sync_port       :: inet:port_number(),
-         smtp_ip_address :: inet:ip4_address(),
-         smtp_port       :: inet:port_number()}).
+         sync_address    :: {inet:ip4_address(), inet:port_number()},
+         smtp_address    :: {inet:ip4_address(), inet:port_number()}}).
 
 -endif.

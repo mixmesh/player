@@ -1,6 +1,6 @@
 -module(player_sync_serv).
 -export([connect/3]).
--export([start_link/5, stop/1]).
+-export([start_link/4, stop/1]).
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
@@ -66,7 +66,7 @@ connect_now(PlayerServPid, Port, #player_sync_serv_options{
 
 %% Exported: start_link
 
-start_link(Name, IpAddress, Port, F, Keys) ->
+start_link(Name, {IpAddress, Port}, F, Keys) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Name, Port,

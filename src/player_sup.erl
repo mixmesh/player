@@ -1,6 +1,6 @@
 -module(player_sup).
 -behaviour(supervisor).
--export([start_link/0, start_link/15]).
+-export([start_link/0, start_link/12]).
 -export([attach_child/3]).
 -export([init/1]).
 
@@ -10,12 +10,11 @@ start_link() ->
     start_link([]).
 
 %% NOTE: Used by the simulator
-start_link(Name, Password, SyncIpAddress, SyncPort, TempDir, Keys, F,
-           GetLocationGenerator, DegreesToMeter, SmtpIpAddress, SmtpPort,
-           SpoolerDir, Pop3IpAddress, Pop3Port, PkiDataDir) ->
-    start_link([Name, Password, SyncIpAddress, SyncPort, TempDir, Keys, F,
-                GetLocationGenerator, DegreesToMeter, SmtpIpAddress, SmtpPort,
-                SpoolerDir, Pop3IpAddress, Pop3Port, PkiDataDir]).
+start_link(Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
+           DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address, PkiDataDir) ->
+    start_link([Name, Password, SyncAddress, TempDir, Keys, F,
+                GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
+                Pop3Address, PkiDataDir]).
 
 start_link(Args) ->
     case supervisor:start_link(?MODULE, Args) of
@@ -55,8 +54,8 @@ attach_child(SourceId, TargetId, Children) ->
 %% Exported: init
 
 init([]) ->
-    [Name, Password, {SyncIpAddress, SyncPort}, TempDir, Spiridon, Maildrop,
-     SmtpProxy, Pop3Proxy] =
+    [Name, Password, SyncAddress, TempDir, Spiridon, Maildrop, SmtpProxy,
+     Pop3Proxy] =
         config:lookup_children(
           [username, password, 'sync-address', 'temp-dir', spiridon, maildrop,
            'smtp-proxy', 'pop3-proxy'],
@@ -65,32 +64,32 @@ init([]) ->
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
     Keys = {PublicKey, SecretKey},
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
-    [{SmtpIpAddress, SmtpPort}] = config:lookup_children([address], SmtpProxy),
-    [{Pop3IpAddress, Pop3Port}] = config:lookup_children([address], Pop3Proxy),
+    [SmtpAddress] = config:lookup_children([address], SmtpProxy),
+    [Pop3Address] = config:lookup_children([address], Pop3Proxy),
     PkiDataDir = config:lookup([player, pki, 'data-dir']),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncIpAddress, SyncPort, TempDir,
-                     {PublicKey, SecretKey}, not_set, not_set, false]}},
+                    [Name, Password, SyncAddress, TempDir, Keys, not_set,
+                     not_set, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Name, SyncIpAddress, SyncPort, F, Keys]}},
+                    [Name, SyncAddress, F, Keys]}},
     MailServSpec =
         #{id => mail_serv,
-          start => {mail_serv, start_link, [Name, SmtpIpAddress, SmtpPort]}},
+          start => {mail_serv, start_link, [Name, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, false]}},
     SmtpProxyServSpec =
         #{id => smtp_proxy_serv,
           start => {smtp_proxy_serv, start_link,
-                    [Name, Password, TempDir, SmtpIpAddress, SmtpPort, false]}},
+                    [Name, Password, TempDir, SmtpAddress, false]}},
     Pop3ProxyServSpec =
         #{id => pop3_proxy_serv,
           start => {pop3_proxy_serv, start_link,
-                    [Name, Password, TempDir, Pop3IpAddress, Pop3Port]}},
+                    [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_srv, start_link_sim, []}},
@@ -105,34 +104,31 @@ init([]) ->
                                        Pop3ProxyServSpec,
                                        NodisServSpec,
                                        PkiServSpec]}};
-init([Name, Password, SyncIpAddress, SyncPort, TempDir, Keys, F,
-      GetLocationGenerator, DegreesToMeter, SmtpIpAddress, SmtpPort,
-      SpoolerDir, Pop3IpAddress, Pop3Port, PkiDataDir]) ->
+init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
+      DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address, PkiDataDir]) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncIpAddress, SyncPort, TempDir,
-                     Keys, GetLocationGenerator, DegreesToMeter, true]}},
+                    [Name, Password, SyncAddress, TempDir, Keys,
+                     GetLocationGenerator, DegreesToMeter, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Name, SyncIpAddress, SyncPort, F, Keys]}},
+                    [Name, SyncAddress, F, Keys]}},
     MailServSpec =
         #{id => mail_serv,
-          start => {mail_serv, start_link,
-                    [Name, SmtpIpAddress, SmtpPort]}},
+          start => {mail_serv, start_link, [Name, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
-          start => {maildrop_serv, start_link,
-                    [SpoolerDir, true]}},
+          start => {maildrop_serv, start_link, [SpoolerDir, true]}},
     SmtpProxyServSpec =
         #{id => smtp_proxy_serv,
           start => {smtp_proxy_serv, start_link,
-                    [Name, Password, TempDir, SmtpIpAddress, SmtpPort, true]}},
+                    [Name, Password, TempDir, SmtpAddress, true]}},
     Pop3ProxyServSpec =
         #{id => pop3_proxy_serv,
           start => {pop3_proxy_serv, start_link,
-                    [Name, Password, TempDir, Pop3IpAddress, Pop3Port]}},
+                    [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_srv, start_link_sim, []}},

@@ -1,5 +1,5 @@
 -module(smtp_proxy_serv).
--export([start_link/6]).
+-export([start_link/5]).
 
 %% DEBUG: swaks --from alice@obscrete.net --to bob@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --auth-password baz --body 'KILLME' --silent"
 
@@ -22,7 +22,7 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, IpAddress, Port, Simulated) ->
+start_link(Name, Password, TempDir, {IpAddress, Port}, Simulated) ->
     PatchInitialServletState =
         fun(State) ->
                 receive

@@ -1,5 +1,5 @@
 -module(mail_serv).
--export([start_link/3, stop/1]).
+-export([start_link/2, stop/1]).
 -export([send_mail/4]).
 
 %% NOTE: This server is typically used for debugging purposes when we
@@ -13,15 +13,14 @@
 -record(state,
         {parent                    :: pid(),
          name                      :: binary(),
-         smtp_ip_address           :: inet:ip4_address(),
-         smtp_port                 :: inet:port_number(),
+         smtp_address              :: {inet:ip4_address(), inet:port_number()},
          smtp_password = <<"baz">> :: binary()}).
 
 %% Exported: start_link
 
-start_link(Name, SmtpIpAddress, SmtpPort) ->
+start_link(Name, SmtpAddress) ->
     ?spawn_server(
-       fun(Parent) -> init(Parent, Name, SmtpIpAddress, SmtpPort) end,
+       fun(Parent) -> init(Parent, Name, SmtpAddress) end,
        fun message_handler/1).
 
 %% Exported: stop
@@ -38,17 +37,13 @@ send_mail(Pid, RecipientName, PickedAsSource, Letter) ->
 %% Server
 %%
 
-init(Parent, Name, SmtpIpAddress, SmtpPort) ->
+init(Parent, Name, SmtpAddress) ->
     ?daemon_tag_log(system, "SMTP server for ~s has been started", [Name]),
-    {ok, #state{parent = Parent,
-                name = Name,
-                smtp_ip_address = SmtpIpAddress,
-                smtp_port = SmtpPort}}.
+    {ok, #state{parent = Parent, name = Name, smtp_address = SmtpAddress}}.
 
 message_handler(#state{parent = Parent,
                        name = Name,
-                       smtp_ip_address = SmtpIpAddress,
-                       smtp_port = SmtpPort,
+                       smtp_address = {SmtpIpAddress, SmtpPort},
                        smtp_password = SmtpPassword}) ->
     receive
         {call, From, stop} ->

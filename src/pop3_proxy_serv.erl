@@ -1,5 +1,5 @@
 -module( pop3_proxy_serv).
--export([start_link/5]).
+-export([start_link/4]).
 
 %% DEBUG: mpop -d --host=127.0.0.1 --port=32098 --deliver=mbox,fnutt --keep=on --auth=user --user=p2 --passwordeval='echo "baz"'
 
@@ -18,7 +18,7 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, IpAddress, Port) ->
+start_link(Name, Password, TempDir, {IpAddress, Port}) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -147,7 +147,7 @@ retr(#channel{servlet_state =
             #response{status = err, info = <<"invalid argument(s)">>}
     end.
 
-%% https://tools.ietf.org/html/rfc1939#page-8 
+%% https://tools.ietf.org/html/rfc1939#page-8
 dele(#channel{servlet_state =
                   #state{maildrop_serv_pid = MaildropServPid}} = Channel,
      Args) ->
@@ -172,7 +172,7 @@ dele(#channel{servlet_state =
             #response{status = err, info = <<"invalid argument(s)">>}
     end.
 
-%% https://tools.ietf.org/html/rfc1939#page-10 
+%% https://tools.ietf.org/html/rfc1939#page-10
 rset(#channel{
         servlet_state = #state{maildrop_serv_pid = MaildropServPid}} = Channel,
      Args) ->
@@ -187,7 +187,7 @@ rset(#channel{
             #response{status = err, info = <<"invalid argument(s)">>}
     end.
 
-%% https://tools.ietf.org/html/rfc1939#page-11 
+%% https://tools.ietf.org/html/rfc1939#page-11
 quit(#channel{mode = Mode,
               servlet_state =
                   #state{maildrop_serv_pid = MaildropServPid}} = Channel,

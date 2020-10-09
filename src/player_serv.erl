@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/9, stop/1]).
+-export([start_link/8, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -36,8 +36,8 @@
          name                        :: binary(),
          mail_serv_pid = not_set     :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
-         sync_ip_address             :: inet:ip4_address(),
-         sync_port                   :: inet:port_number(),
+         sync_address                :: {inet:ip4_address(),
+                                         inet:port_number()},
          temp_dir                    :: binary(),
          buffer                      :: ets:tid(),
          received_messages = []      :: [integer()],
@@ -60,12 +60,12 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, SyncIpAddress, SyncPort, TempDir, Keys,
-           GetLocationGenerator, DegreesToMeters, Simulated) ->
+start_link(Name, Password, SyncAddress, TempDir, Keys, GetLocationGenerator,
+           DegreesToMeters, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, Password, SyncIpAddress, SyncPort, TempDir,
-                    Keys, GetLocationGenerator, DegreesToMeters, Simulated)
+               init(Parent, Name, Password, SyncAddress, TempDir, Keys,
+                    GetLocationGenerator, DegreesToMeters, Simulated)
        end,
        fun initial_message_handler/1).
 
@@ -165,8 +165,8 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, Password, SyncIpAddress, SyncPort, TempDir,
-     {PublicKey, _SecretKey} = Keys, GetLocationGenerator, DegreesToMeters,
+init(Parent, Name, Password, SyncAddress, TempDir,
+     {PublicKey, _SecretKey} = Keys, GetLocationGenerator,  DegreesToMeters,
      Simulated) ->
     rand:seed(exsss),
     Buffer = player_buffer:new(),
@@ -180,8 +180,7 @@ init(Parent, Name, Password, SyncIpAddress, SyncPort, TempDir,
     ?daemon_tag_log(system, "Player server for ~s has been started", [Name]),
     {ok, #state{parent = Parent,
                 name = Name,
-                sync_ip_address = SyncIpAddress,
-                sync_port = SyncPort,
+                sync_address = SyncAddress,
                 temp_dir = TempDir,
                 buffer = Buffer,
                 keys = Keys,
@@ -248,8 +247,7 @@ message_handler(
          name = Name,
          mail_serv_pid = MailServPid,
          maildrop_serv_pid = MaildropServPid,
-         sync_ip_address = SyncIpAddress,
-         sync_port = SyncPort,
+         sync_address = SyncAddress,
          temp_dir = TempDir,
          buffer = Buffer,
          received_messages = ReceivedMessages,
@@ -485,8 +483,8 @@ message_handler(
           case lists:keymember({NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
                                Neighbours) of
               false ->
-                  case {SyncIpAddress, SyncPort} >
-                      {NeighbourSyncIpAddress, NeighbourSyncPort} of
+                  case SyncAddress >
+                       {NeighbourSyncIpAddress, NeighbourSyncPort} of
                       true ->
                           {ok, Pid} = player_sync_serv:connect(
                                         self(),
@@ -507,8 +505,7 @@ message_handler(
                                    #db_player{
                                       name = Name,
                                       neighbours =
-                                          simulator_serv:get_player_names(
-                                            NewNeighbours)});
+                                          get_player_names(NewNeighbours)});
                       true ->
                           true
                   end,
@@ -540,8 +537,7 @@ message_handler(
                                    #db_player{
                                       name = Name,
                                       neighbours =
-                                          simulator_serv:get_player_names(
-                                            NewNeighbours)});
+                                          get_player_names(NewNeighbours)});
                       true ->
                           ok
                   end,
@@ -676,6 +672,10 @@ calculate_pick_mode(Buffer, {is_forwarder, {_, MessageId}}) ->
     end;
 calculate_pick_mode(_Buffer, PickMode) ->
     PickMode.
+
+get_player_names(Neighbours) ->
+    simulator_serv:get_player_names(
+      [SyncAddress || {SyncAddress, _Pid} <- Neighbours]).
 
 %% print_speed(_DegreesToMeters, _X, _Y, _MetersMoved, 0, _NextX, _NextY) ->
 %%     ok;
