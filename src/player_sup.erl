@@ -92,7 +92,10 @@ init([]) ->
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link_sim, []}},
+          start => {nodis_srv, start_link_sim,
+                    [#{simulation => true,
+                       ping_interval => 500,
+                       max_ping_lost => 2}]}},
     PkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [none, PkiDataDir]}},
@@ -131,7 +134,10 @@ init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link_sim, []}},
+          start => {nodis_srv, start_link_sim,
+                    [#{simulation => true,
+                       ping_interval => 500,
+                       max_ping_lost => 2}]}},
     PkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [none, PkiDataDir]}},
