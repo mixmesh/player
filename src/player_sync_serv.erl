@@ -88,9 +88,17 @@ stop(Pid) ->
 init(Parent, Name, Port,
      #player_sync_serv_options{
         ip_address = IpAddress} = Options) ->
+    Family = if tuple_size(IpAddress) =:= 4 -> [inet];
+		tuple_size(IpAddress) =:= 8 -> [inet6];
+		true -> []
+	     end,
+    LOptions = Family ++ [{active, false},
+			  {ifaddr, IpAddress},
+			  binary,
+			  {packet, 2},
+			  {reuseaddr, true}],
     {ok, ListenSocket} =
-        gen_tcp:listen(Port, [{active, false}, {ip, IpAddress}, binary,
-                              {packet, 2}, {reuseaddr, true}]),
+        gen_tcp:listen(Port, LOptions),
     self() ! accepted,
     ?daemon_tag_log(system, "Player sync server starting for ~s on ~s:~w",
                     [Name, inet:ntoa(IpAddress), Port]),

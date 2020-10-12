@@ -40,7 +40,7 @@
          mail_serv_pid = not_set     :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
          pki_serv_pid = not_set      :: pid() | not_set,
-         sync_address                :: {inet:ip4_address(),
+         sync_address                :: {inet:ip_address(),
                                          inet:port_number()},
          temp_dir                    :: binary(),
          buffer_dir                  :: binary(),
@@ -448,29 +448,25 @@ message_handler(
       %%
       %% Nodis subscription events
       %%
-      {nodis, NodisSubscription,
-       {up, {Ip0, Ip1, Ip2, Ip3, NeighbourSyncPort} = NeighbourSyncAddress}} ->
-          ?dbg_tag_log(nodis, {up, NeighbourSyncAddress}),
-          NeighbourSyncIpAddress = {Ip0, Ip1, Ip2, Ip3},
-          case lists:keymember({NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
-                               Neighbours) of
+      {nodis, NodisSubscription, {up,Addr}} ->
+	  NAddress = {NIp, NPort} = nodis_address(Addr, SyncAddress),
+	  ?dbg_tag_log(nodis, {up, NAddress}),
+          case lists:keymember(NAddress, 1, Neighbours) of
               false ->
-                  case SyncAddress >
-                       {NeighbourSyncIpAddress, NeighbourSyncPort} of
+		  %% only ONE will initiate
+                  case SyncAddress > NAddress of
                       true ->
                           {ok, Pid} = player_sync_serv:connect(
                                         self(),
-                                        NeighbourSyncPort,
+                                        NPort,
                                         #player_sync_serv_options{
-                                           ip_address = NeighbourSyncIpAddress,
+                                           ip_address = NIp,
                                            f = ?F,
                                            keys = Keys});
                       false ->
                           Pid = none
                   end,
-                  NewNeighbours =
-                      [{{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}|
-                       Neighbours],
+                  NewNeighbours = [{NAddress, Pid} | Neighbours],
                   case Simulated of
                       true ->
                           true = player_db:update(
@@ -485,24 +481,17 @@ message_handler(
               true ->
                   noreply
           end;
-      {nodis, NodisSubscription,
-       {down,
-        {Ip0, Ip1, Ip2, Ip3, NeighbourSyncPort}} = NeighbourSyncAddress} ->
-          ?dbg_tag_log(nodis, {down, NeighbourSyncAddress}),
-          NeighbourSyncIpAddress = {Ip0, Ip1, Ip2, Ip3},
-          case lists:keysearch({NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
-                               Neighbours) of
-              {value, {_, Pid}} ->
+      {nodis, NodisSubscription, {down,Addr}} ->
+	  NAddress = nodis_address(Addr, SyncAddress),
+          ?dbg_tag_log(nodis, {down, NAddress}),
+          case lists:keytake(NAddress, 1, Neighbours) of
+	      {value,{_, Pid},NewNeighbours} ->
                   if
                       is_pid(Pid) ->
                           exit(Pid, die);
                       true ->
                           ok
                   end,
-                  NewNeighbours =
-                      lists:keydelete(
-                        {NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
-                        Neighbours),
                   case Simulated of
                       true ->
                           true = player_db:update(
@@ -517,8 +506,9 @@ message_handler(
               false ->
                   noreply
           end;
-      {nodis, NodisSubscription, {missed, NeighbourAddress}} ->
-          ?dbg_tag_log(nodis, {missed, NeighbourAddress}),
+      {nodis, NodisSubscription, {missed, Addr}} ->
+	  NAddress = nodis_address(Addr, SyncAddress),
+          ?dbg_tag_log(nodis, {missed, NAddress}),
           noreply;
       {'EXIT', Parent, Reason} ->
           exit(Reason);
@@ -606,6 +596,14 @@ message_handler(
           ?error_log({unknown_message, UnknownMessage}),
           noreply
   end.
+
+nodis_address(IP={_A,_B,_C,_D,_E,_F,_G,_H},{_SyncIP,Port}) -> %% IPv6
+    {IP, Port};
+nodis_address(IP={_A,_B,_C,_D},{_SyncIP,Port}) ->  %% IPv4
+    {IP, Port};
+nodis_address({A,B,C,D,Port},_SyncAddr) -> %% simulator IPv5 :-)
+    {{A,B,C,D}, Port}.
+
 
 perform(_Do, 0) ->
     ok;

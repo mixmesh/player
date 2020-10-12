@@ -22,7 +22,7 @@ get() ->
            reloadable = false}},
        {'sync-address',
         #json_type{
-           name = ipv4address_port,
+           name = ipaddress_port,
            typical = {{242,45,0,34}, 10000},
            reloadable = false}},
        {'temp-dir',
