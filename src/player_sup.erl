@@ -1,6 +1,6 @@
 -module(player_sup).
 -behaviour(supervisor).
--export([start_link/0, start_link/13]).
+-export([start_link/0, start_link/14]).
 -export([attach_child/3]).
 -export([init/1]).
 
@@ -25,10 +25,10 @@ start_link(Args) ->
     end.
 
 %% NOTE: Used by simulator_serv.erl
-start_link(Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
-           DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address,
-           LocalPkiServerDataDir, PkiMode) ->
-    start_link([Name, Password, SyncAddress, TempDir, Keys, F,
+start_link(Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
+           GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
+           Pop3Address, LocalPkiServerDataDir, PkiMode) ->
+    start_link([Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
                 GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
                 Pop3Address, LocalPkiServerDataDir, PkiMode]).
 
@@ -55,11 +55,11 @@ attach_child(SourceId, TargetId, Children) ->
 %% Exported: init
 
 init([]) ->
-    [Name, Password, SyncAddress, TempDir, Spiridon, Maildrop, SmtpServer,
-     Pop3Server] =
+    [Name, Password, SyncAddress, TempDir, BufferDir, Spiridon, Maildrop,
+     SmtpServer, Pop3Server] =
         config:lookup_children(
-          [username, password, 'sync-address', 'temp-dir', spiridon, maildrop,
-           'smtp-server', 'pop3-server'],
+          [username, password, 'sync-address', 'temp-dir', 'buffer-dir',
+           spiridon, maildrop, 'smtp-server', 'pop3-server'],
           config:lookup([player])),
     [F, PublicKey, SecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
@@ -93,8 +93,8 @@ init([]) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncAddress, TempDir, Keys, not_set,
-                     not_set, PkiMode, false]}},
+                    [Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+                     not_set, not_set, PkiMode, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -130,13 +130,13 @@ init([]) ->
                                        Pop3ServSpec,
                                        NodisServSpec,
                                        LocalPkiServSpec]}};
-init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
-      DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address,
-      LocalPkiServerDataDir, PkiMode]) ->
+init([Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
+      GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
+      Pop3Address, LocalPkiServerDataDir, PkiMode]) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncAddress, TempDir, Keys,
+                    [Name, Password, SyncAddress, TempDir, BufferDir, Keys,
                      GetLocationGenerator, DegreesToMeter, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,

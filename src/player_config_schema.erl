@@ -28,7 +28,12 @@ get() ->
        {'temp-dir',
         #json_type{
            name = writable_directory,
-           typical = <<"/var/obscrete/players/johndoe/smtp/temp">>,
+           typical = <<"/var/obscrete/players/johndoe/temp">>,
+           reloadable = false}},
+       {'buffer-dir',
+        #json_type{
+           name = writable_directory,
+           typical = <<"/var/obscrete/players/johndoe/buffer">>,
            reloadable = false}},
        {spiridon,
         [{f,

@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/9, stop/1]).
+-export([start_link/10, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -43,7 +43,8 @@
          sync_address                :: {inet:ip4_address(),
                                          inet:port_number()},
          temp_dir                    :: binary(),
-         buffer                      :: ets:tid(),
+         buffer_dir                  :: binary(),
+         buffer                      :: player_buffer:buffer_handle(),
          received_messages = []      :: [integer()],
          generate_mail = false       :: boolean(),
          keys                        :: {#pk{}, #sk{}},
@@ -67,12 +68,13 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, SyncAddress, TempDir, Keys, GetLocationGenerator,
-           DegreesToMeters, PkiMode, Simulated) ->
+start_link(Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+           GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, Password, SyncAddress, TempDir, Keys,
-                    GetLocationGenerator, DegreesToMeters, PkiMode, Simulated)
+               init(Parent, Name, Password, SyncAddress, TempDir, BufferDir,
+                    Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
+                    Simulated)
        end,
        fun initial_message_handler/1).
 
@@ -179,28 +181,34 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, Password, SyncAddress, TempDir, Keys, GetLocationGenerator,
-     DegreesToMeters, PkiMode, Simulated) ->
+init(Parent, Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+     GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
-    Buffer = player_buffer:new(),
-    case Simulated of
-        true ->
-            LocationGenerator = GetLocationGenerator();
-        false ->
-            LocationGenerator = not_set
-    end,
-    ?daemon_tag_log(system, "Player server for ~s has been started", [Name]),
-    {ok, #state{parent = Parent,
-                name = Name,
-                password = Password,
-                sync_address = SyncAddress,
-                temp_dir = TempDir,
-                buffer = Buffer,
-                keys = Keys,
-                location_generator = LocationGenerator,
-                degrees_to_meters = DegreesToMeters,
-                pki_mode = PkiMode,
-                simulated = Simulated}}.
+    case player_buffer:new(BufferDir) of
+        {ok, Buffer} ->
+            case Simulated of
+                true ->
+                    LocationGenerator = GetLocationGenerator();
+                false ->
+                    LocationGenerator = not_set
+            end,
+            ?daemon_tag_log(system,
+                            "Player server for ~s has been started", [Name]),
+            {ok, #state{parent = Parent,
+                        name = Name,
+                        password = Password,
+                        sync_address = SyncAddress,
+                        temp_dir = TempDir,
+                        buffer_dir = BufferDir,
+                        buffer = Buffer,
+                        keys = Keys,
+                        location_generator = LocationGenerator,
+                        degrees_to_meters = DegreesToMeters,
+                        pki_mode = PkiMode,
+                        simulated = Simulated}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 read_public_key(PkiServPid, local, Name) ->
     case pki_serv:read(PkiServPid, Name) of
@@ -302,6 +310,7 @@ message_handler(
          pki_serv_pid = PkiServPid,
          sync_address = SyncAddress,
          temp_dir = TempDir,
+         buffer_dir = _BufferDir,
          buffer = Buffer,
          received_messages = ReceivedMessages,
          generate_mail = GenerateMail,
