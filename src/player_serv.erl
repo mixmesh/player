@@ -210,98 +210,6 @@ init(Parent, Name, Password, SyncAddress, TempDir, BufferDir, Keys,
             {error, Reason}
     end.
 
-read_public_key(PkiServPid, local, Name) ->
-    case pki_serv:read(PkiServPid, Name) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            {ok, PublicKey};
-        {error, Reason} ->
-            {error, Reason}
-    end;
-read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
-    case pki_network_client:read(
-           Name, #pki_network_client_options{pki_access = PkiAccess},
-           ?PKI_NETWORK_TIMEOUT) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            {ok, PublicKey};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-publish_public_key(PkiServPid, local, Name, Password, PublicKey) ->
-    case pki_serv:read(PkiServPid, Name) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_tag_log(system, "PKI server is in sync", []),
-            ok;
-        {ok, PkiUser} ->
-            ok = pki_serv:update(PkiServPid,
-                                 PkiUser#pki_user{password = Password,
-                                                  public_key = PublicKey}),
-            ?daemon_tag_log(system, "Updated the PKI server", []),
-            ok;
-        {error, no_such_user} ->
-            ok = pki_serv:create(PkiServPid,
-                                 #pki_user{name = Name,
-                                           password = Password,
-                                           public_key = PublicKey}),
-            ?daemon_tag_log(system, "Created an entry in the PKI server", []),
-            ok
-    end;
-publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
-                   PublicKey) ->
-    case pki_network_client:read(
-           Name, #pki_network_client_options{pki_access = PkiAccess},
-           ?PKI_NETWORK_TIMEOUT) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_tag_log(system, "PKI server is in sync", []),
-            ok;
-        {ok, PkiUser} ->
-            case pki_network_client:update(
-                   PkiUser#pki_user{password = Password,
-                                    public_key = PublicKey},
-                   #pki_network_client_options{pki_access = PkiAccess},
-                   ?PKI_NETWORK_TIMEOUT) of
-                ok ->
-                    ?daemon_tag_log(system, "Updated the PKI server", []),
-                    ok;
-                {error, Reason} ->
-                    ?daemon_tag_log(
-                       system,
-                       "Could not update the PKI server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, Password,
-                                       PublicKey)
-            end;
-        {error, <<"No such user">>} ->
-            case pki_network_client:create(
-                   #pki_user{name = Name,
-                             password = Password,
-                             public_key = PublicKey},
-                   #pki_network_client_options{pki_access = PkiAccess},
-                   ?PKI_NETWORK_TIMEOUT) of
-                ok ->
-                    ?daemon_tag_log(
-                       system, "Created an entry in the PKI server", []),
-                    ok;
-                {error, Reason} ->
-                    ?daemon_tag_log(
-                       system,
-                       "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, Password,
-                                       PublicKey)
-            end;
-        {error, Reason} ->
-            ?daemon_tag_log(
-               system,
-               "Could not contact PKI server (~p). Will try again in ~w seconds.",
-               [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-            timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(PkiServPid, PkiMode, Name, Password,
-                               PublicKey)
-    end.
-
 message_handler(
   #state{parent = Parent,
          name = Name,
@@ -759,3 +667,99 @@ get_player_names(Neighbours) ->
 %%         end,
 %%     io:format("~w km/h\n", [NewMetersMoved / (Timestamp / 3600) / 1000]),
 %%     ok.
+
+%%
+%% PKI access functions
+%%
+
+read_public_key(PkiServPid, local, Name) ->
+    case pki_serv:read(PkiServPid, Name) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            {ok, PublicKey};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
+    case pki_network_client:read(
+           Name, #pki_network_client_options{pki_access = PkiAccess},
+           ?PKI_NETWORK_TIMEOUT) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            {ok, PublicKey};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+publish_public_key(PkiServPid, local, Name, Password, PublicKey) ->
+    case pki_serv:read(PkiServPid, Name) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            ?daemon_tag_log(system, "PKI server is in sync", []),
+            ok;
+        {ok, PkiUser} ->
+            ok = pki_serv:update(PkiServPid,
+                                 PkiUser#pki_user{password = Password,
+                                                  public_key = PublicKey}),
+            ?daemon_tag_log(system, "Updated the PKI server", []),
+            ok;
+        {error, no_such_user} ->
+            ok = pki_serv:create(PkiServPid,
+                                 #pki_user{name = Name,
+                                           password = Password,
+                                           public_key = PublicKey}),
+            ?daemon_tag_log(system, "Created an entry in the PKI server", []),
+            ok
+    end;
+publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
+                   PublicKey) ->
+    case pki_network_client:read(
+           Name, #pki_network_client_options{pki_access = PkiAccess},
+           ?PKI_NETWORK_TIMEOUT) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            ?daemon_tag_log(system, "PKI server is in sync", []),
+            ok;
+        {ok, PkiUser} ->
+            case pki_network_client:update(
+                   PkiUser#pki_user{password = Password,
+                                    public_key = PublicKey},
+                   #pki_network_client_options{pki_access = PkiAccess},
+                   ?PKI_NETWORK_TIMEOUT) of
+                ok ->
+                    ?daemon_tag_log(system, "Updated the PKI server", []),
+                    ok;
+                {error, Reason} ->
+                    ?daemon_tag_log(
+                       system,
+                       "Could not update the PKI server (~p). Will try again in ~w seconds.",
+                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
+                    timer:sleep(?PKI_PUSHBACK_TIME),
+                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                                       PublicKey)
+            end;
+        {error, <<"No such user">>} ->
+            case pki_network_client:create(
+                   #pki_user{name = Name,
+                             password = Password,
+                             public_key = PublicKey},
+                   #pki_network_client_options{pki_access = PkiAccess},
+                   ?PKI_NETWORK_TIMEOUT) of
+                ok ->
+                    ?daemon_tag_log(
+                       system, "Created an entry in the PKI server", []),
+                    ok;
+                {error, Reason} ->
+                    ?daemon_tag_log(
+                       system,
+                       "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
+                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
+                    timer:sleep(?PKI_PUSHBACK_TIME),
+                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                                       PublicKey)
+            end;
+        {error, Reason} ->
+            ?daemon_tag_log(
+               system,
+               "Could not contact PKI server (~p). Will try again in ~w seconds.",
+               [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
+            timer:sleep(?PKI_PUSHBACK_TIME),
+            publish_public_key(PkiServPid, PkiMode, Name, Password,
+                               PublicKey)
+    end.
