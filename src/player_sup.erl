@@ -90,6 +90,14 @@ init([]) ->
                                   PkiServerTorAddress, PkiServerTcpAddress}}
                 end
         end,
+    NodisOpts = case config:lookup([simulator, enabled]) of
+		    true ->
+			#{ simulation => true,
+			   ping_interval => 500,
+			   max_ping_lost => 2};
+		    false ->
+			#{}
+		end,
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -115,10 +123,8 @@ init([]) ->
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link_sim,
-                    [#{simulation => true,
-                       ping_interval => 500,
-                       max_ping_lost => 2}]}},
+          start => {nodis_srv, start_link, [NodisOpts]}},
+
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
@@ -158,7 +164,7 @@ init([Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link_sim,
+          start => {nodis_srv, start_link,
                     [#{simulation => true,
                        ping_interval => 500,
                        max_ping_lost => 2}]}},
