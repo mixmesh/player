@@ -104,7 +104,7 @@ get() ->
           [{access,
             #json_type{
                name = atom,
-               info = "One of tor-only, tcp-only or tor-fallback-to-tcp",
+               info = "tor-only, tcp-only or tor-fallback-to-tcp",
                typical = tor_only,
                convert =
                    fun('tor-only') -> tor_only;

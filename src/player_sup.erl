@@ -24,7 +24,7 @@ start_link(Args) ->
             Error
     end.
 
-%% NOTE: Used by simulator_serv.erl
+%% NOTE: Triggered by simulator_serv.erl only
 start_link(Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
            GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
            Pop3Address, LocalPkiServerDataDir, PkiMode) ->
@@ -90,14 +90,6 @@ init([]) ->
                                   PkiServerTorAddress, PkiServerTcpAddress}}
                 end
         end,
-    NodisOpts = case config:lookup([simulator, enabled]) of
-		    true ->
-			#{ simulation => true,
-			   ping_interval => 500,
-			   max_ping_lost => 2};
-		    false ->
-			#{}
-		end,
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -123,8 +115,7 @@ init([]) ->
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link, [NodisOpts]}},
-
+          start => {nodis_srv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
@@ -136,6 +127,7 @@ init([]) ->
                                        Pop3ServSpec,
                                        NodisServSpec,
                                        LocalPkiServSpec]}};
+%% NOTE: Triggered by simulator_serv.erl only
 init([Name, Password, SyncAddress, TempDir, BufferDir, Keys, F,
       GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
       Pop3Address, LocalPkiServerDataDir, PkiMode]) ->
