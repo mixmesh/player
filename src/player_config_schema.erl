@@ -63,13 +63,13 @@ get() ->
              name = writable_directory,
              typical = <<"/var/obscrete/players/johndoe/maildrop/spooler">>,
              reloadable = false}}]},
-       {'smtp-proxy',
+       {'smtp-server',
         [{address,
           #json_type{
              name = ipv4address_port,
              typical = {{242,45,0,34}, 20000},
              reloadable = false}}]},
-       {'pop3-proxy',
+       {'pop3-server',
         [{address,
           #json_type{
              name = ipv4address_port,

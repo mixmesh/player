@@ -1,4 +1,4 @@
--module(smtp_proxy_serv).
+-module(smtp_serv).
 -export([start_link/5]).
 
 %% DEBUG: swaks --from alice@obscrete.net --to bob@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --auth-password baz --body 'KILLME' --silent"
@@ -55,7 +55,7 @@ start_link(Name, Password, TempDir, {IpAddress, Port}, Simulated) ->
                        #servlet{command = any, handler = fun any/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
-    ?daemon_tag_log(system, "SMTP proxy starting for ~s on ~s:~w",
+    ?daemon_tag_log(system, "SMTP server starting for ~s on ~s:~w",
                     [Name, inet:ntoa(IpAddress), Port]),
     smtplib:start_link(IpAddress, Port, Options).
 

@@ -11,8 +11,8 @@
              player_sup,
              player_sync_serv,
              player_util,
-             pop3_proxy_serv,
-             smtp_proxy_serv]},
+             pop3_serv,
+             smtp_serv]},
   {registered, []},
   {mod, {player_app, []}},
   {applications, [kernel, stdlib, sasl, pki]}]}.

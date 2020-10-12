@@ -17,8 +17,8 @@ start_link(Args) ->
                               [mail_serv, maildrop_serv, nodis_serv, pki_serv],
                               Children),
             ok = attach_child(player_sync_serv, player_serv, Children),
-            ok = attach_child(smtp_proxy_serv, player_serv, Children),
-            ok = attach_child(pop3_proxy_serv, maildrop_serv, Children),
+            ok = attach_child(smtp_serv, player_serv, Children),
+            ok = attach_child(pop3_serv, maildrop_serv, Children),
             {ok, Pid};
         Error ->
             Error
@@ -55,18 +55,18 @@ attach_child(SourceId, TargetId, Children) ->
 %% Exported: init
 
 init([]) ->
-    [Name, Password, SyncAddress, TempDir, Spiridon, Maildrop, SmtpProxy,
-     Pop3Proxy] =
+    [Name, Password, SyncAddress, TempDir, Spiridon, Maildrop, SmtpServer,
+     Pop3Server] =
         config:lookup_children(
           [username, password, 'sync-address', 'temp-dir', spiridon, maildrop,
-           'smtp-proxy', 'pop3-proxy'],
+           'smtp-server', 'pop3-server'],
           config:lookup([player])),
     [F, PublicKey, SecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
     Keys = {PublicKey, SecretKey},
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
-    [SmtpAddress] = config:lookup_children([address], SmtpProxy),
-    [Pop3Address] = config:lookup_children([address], Pop3Proxy),
+    [SmtpAddress] = config:lookup_children([address], SmtpServer),
+    [Pop3Address] = config:lookup_children([address], Pop3Server),
     LocalPkiServerDataDir =
         config:lookup([player, 'local-pki-server', 'data-dir']),
     PkiMode =
@@ -105,13 +105,13 @@ init([]) ->
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, false]}},
-    SmtpProxyServSpec =
-        #{id => smtp_proxy_serv,
-          start => {smtp_proxy_serv, start_link,
+    SmtpServSpec =
+        #{id => smtp_serv,
+          start => {smtp_serv, start_link,
                     [Name, Password, TempDir, SmtpAddress, false]}},
-    Pop3ProxyServSpec =
-        #{id => pop3_proxy_serv,
-          start => {pop3_proxy_serv, start_link,
+    Pop3ServSpec =
+        #{id => pop3_serv,
+          start => {pop3_serv, start_link,
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
@@ -126,8 +126,8 @@ init([]) ->
                                        PlayerSyncServSpec,
                                        MailServSpec,
                                        MaildropServSpec,
-                                       SmtpProxyServSpec,
-                                       Pop3ProxyServSpec,
+                                       SmtpServSpec,
+                                       Pop3ServSpec,
                                        NodisServSpec,
                                        LocalPkiServSpec]}};
 init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
@@ -148,13 +148,13 @@ init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, true]}},
-    SmtpProxyServSpec =
-        #{id => smtp_proxy_serv,
-          start => {smtp_proxy_serv, start_link,
+    SmtpServSpec =
+        #{id => smtp_serv,
+          start => {smtp_serv, start_link,
                     [Name, Password, TempDir, SmtpAddress, true]}},
-    Pop3ProxyServSpec =
-        #{id => pop3_proxy_serv,
-          start => {pop3_proxy_serv, start_link,
+    Pop3ServSpec =
+        #{id => pop3_serv,
+          start => {pop3_serv, start_link,
                     [Name, Password, TempDir, Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
@@ -170,7 +170,7 @@ init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
                                        PlayerSyncServSpec,
                                        MailServSpec,
                                        MaildropServSpec,
-                                       SmtpProxyServSpec,
-                                       Pop3ProxyServSpec,
+                                       SmtpServSpec,
+                                       Pop3ServSpec,
                                        NodisServSpec,
                                        LocalPkiServSpec]}}.

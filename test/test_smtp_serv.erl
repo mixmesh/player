@@ -1,4 +1,4 @@
--module(test_smtp_proxy_serv).
+-module(test_smtp_serv).
 -export([start/0]).
 
 %% NOTE: swaks must be installed to run this test

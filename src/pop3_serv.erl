@@ -1,4 +1,4 @@
--module( pop3_proxy_serv).
+-module( pop3_serv).
 -export([start_link/4]).
 
 %% DEBUG: mpop -d --host=127.0.0.1 --port=32098 --deliver=mbox,fnutt --keep=on --auth=user --user=p2 --passwordeval='echo "baz"'
@@ -47,7 +47,7 @@ start_link(Name, Password, TempDir, {IpAddress, Port}) ->
                        #servlet{command = pass, handler = fun pass/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
-    ?daemon_tag_log(system, "POP3 proxy starting for ~s on ~s:~w",
+    ?daemon_tag_log(system, "POP3 server starting for ~s on ~s:~w",
                     [Name, inet:ntoa(IpAddress), Port]),
     pop3lib:start_link(IpAddress, Port, Options).
 
