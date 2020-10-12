@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/8, stop/1]).
+-export([start_link/9, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -19,9 +19,11 @@
 -include_lib("player/include/player_sync_serv.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 -include_lib("pki/include/pki_serv.hrl").
+-include_lib("pki/include/pki_network_client.hrl").
 
 -define(GENERATE_MAIL_TIME, (60 * 1000)).
 -define(PKI_PUSHBACK_TIME, 10000).
+-define(PKI_NETWORK_TIMEOUT, 20000).
 
 -type message_id() :: integer().
 -type pick_mode() :: is_nothing |
@@ -34,8 +36,10 @@
 -record(state,
         {parent                      :: pid(),
          name                        :: binary(),
+         password                    :: binary(),
          mail_serv_pid = not_set     :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
+         pki_serv_pid = not_set      :: pid() | not_set,
          sync_address                :: {inet:ip4_address(),
                                          inet:port_number()},
          temp_dir                    :: binary(),
@@ -44,8 +48,8 @@
          generate_mail = false       :: boolean(),
          keys                        :: {#pk{}, #sk{}},
          reply_keys = not_set        :: {#pk{}, #sk{}} | not_set,
-         location_generator          :: fun(),
-         degrees_to_meters           :: fun(),
+         location_generator          :: function(),
+         degrees_to_meters           :: function(),
          x = none                    :: integer() | none,
          y = none                    :: integer() | none,
          neighbours = []             :: [{{inet:ip4_address(),
@@ -55,29 +59,39 @@
          pick_mode = is_nothing      :: pick_mode(),
          paused = false              :: boolean(),
          meters_moved = 0            :: integer(),
+         pki_mode                    :: local |
+                                        {global,
+                                         pki_network_client:pki_access()},
          simulated                   :: boolean(),
          nodis_subscription          :: reference() | undefined}).
 
 %% Exported: start_link
 
 start_link(Name, Password, SyncAddress, TempDir, Keys, GetLocationGenerator,
-           DegreesToMeters, Simulated) ->
+           DegreesToMeters, PkiMode, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Name, Password, SyncAddress, TempDir, Keys,
-                    GetLocationGenerator, DegreesToMeters, Simulated)
+                    GetLocationGenerator, DegreesToMeters, PkiMode, Simulated)
        end,
        fun initial_message_handler/1).
 
-initial_message_handler(State) ->
+initial_message_handler(#state{name = Name,
+                               password = Password,
+                               keys = {PublicKey, _SecretKey},
+                               pki_mode = PkiMode} = State) ->
     receive
         {sibling_pid, [{mail_serv, MailServPid},
                        {maildrop_serv, MaildropServPid},
-                       {nodis_serv, NodisServPid}]} ->
+                       {nodis_serv, NodisServPid},
+                       {pki_serv, PkiServPid}]} ->
             {ok, NodisSubscription} = nodis_srv:subscribe(NodisServPid),
+            ok = publish_public_key(PkiServPid, PkiMode, Name, Password,
+                                    PublicKey),
             {swap_message_handler, fun message_handler/1,
              State#state{mail_serv_pid = MailServPid,
                          maildrop_serv_pid = MaildropServPid,
+                         pki_serv_pid = PkiServPid,
                          nodis_subscription = NodisSubscription}}
     end.
 
@@ -165,46 +179,79 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, Password, SyncAddress, TempDir,
-     {PublicKey, _SecretKey} = Keys, GetLocationGenerator,  DegreesToMeters,
-     Simulated) ->
+init(Parent, Name, Password, SyncAddress, TempDir, Keys, GetLocationGenerator,
+     DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
     Buffer = player_buffer:new(),
-    ok = publish_public_key(Name, Password, PublicKey),
-    if
-        Simulated ->
-            LocationGenerator = GetLocationGenerator();
+    case Simulated of
         true ->
+            LocationGenerator = GetLocationGenerator();
+        false ->
             LocationGenerator = not_set
     end,
     ?daemon_tag_log(system, "Player server for ~s has been started", [Name]),
     {ok, #state{parent = Parent,
                 name = Name,
+                password = Password,
                 sync_address = SyncAddress,
                 temp_dir = TempDir,
                 buffer = Buffer,
                 keys = Keys,
                 location_generator = LocationGenerator,
                 degrees_to_meters = DegreesToMeters,
+                pki_mode = PkiMode,
                 simulated = Simulated}}.
 
-read_public_key(Name) ->
-    case pki_network_client:read(Name) of
+read_public_key(PkiServPid, local, Name) ->
+    case pki_serv:read(PkiServPid, Name) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            {ok, PublicKey};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
+    case pki_network_client:read(
+           Name, #pki_network_client_options{pki_access = PkiAccess},
+           ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
             {ok, PublicKey};
         {error, Reason} ->
             {error, Reason}
     end.
 
-publish_public_key(Name, Password, PublicKey) ->
-    case pki_network_client:read(Name) of
+publish_public_key(PkiServPid, local, Name, Password, PublicKey) ->
+    case pki_serv:read(PkiServPid, Name) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            ?daemon_tag_log(system, "PKI server is in sync", []),
+            ok;
+        {ok, PkiUser} ->
+            ok = pki_serv:update(PkiServPid,
+                                 PkiUser#pki_user{password = Password,
+                                                  public_key = PublicKey}),
+            ?daemon_tag_log(system, "Updated the PKI server", []),
+            ok;
+        {error, no_such_user} ->
+            ok = pki_serv:create(PkiServPid,
+                                 #pki_user{name = Name,
+                                           password = Password,
+                                           public_key = PublicKey}),
+            ?daemon_tag_log(system, "Created an entry in the PKI server", []),
+            ok
+    end;
+publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
+                   PublicKey) ->
+    case pki_network_client:read(
+           Name, #pki_network_client_options{pki_access = PkiAccess},
+           ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
             ?daemon_tag_log(system, "PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             case pki_network_client:update(
                    PkiUser#pki_user{password = Password,
-                                    public_key = PublicKey}) of
+                                    public_key = PublicKey},
+                   #pki_network_client_options{pki_access = PkiAccess},
+                   ?PKI_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_tag_log(system, "Updated the PKI server", []),
                     ok;
@@ -214,13 +261,16 @@ publish_public_key(Name, Password, PublicKey) ->
                        "Could not update the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(Name, Password, PublicKey)
+                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                                       PublicKey)
             end;
         {error, <<"No such user">>} ->
             case pki_network_client:create(
                    #pki_user{name = Name,
                              password = Password,
-                             public_key = PublicKey}) of
+                             public_key = PublicKey},
+                   #pki_network_client_options{pki_access = PkiAccess},
+                   ?PKI_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_tag_log(
                        system, "Created an entry in the PKI server", []),
@@ -231,7 +281,8 @@ publish_public_key(Name, Password, PublicKey) ->
                        "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(Name, Password, PublicKey)
+                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                                       PublicKey)
             end;
         {error, Reason} ->
             ?daemon_tag_log(
@@ -239,7 +290,8 @@ publish_public_key(Name, Password, PublicKey) ->
                "Could not contact PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(Name, Password, PublicKey)
+            publish_public_key(PkiServPid, PkiMode, Name, Password,
+                               PublicKey)
     end.
 
 message_handler(
@@ -247,6 +299,7 @@ message_handler(
          name = Name,
          mail_serv_pid = MailServPid,
          maildrop_serv_pid = MaildropServPid,
+         pki_serv_pid = PkiServPid,
          sync_address = SyncAddress,
          temp_dir = TempDir,
          buffer = Buffer,
@@ -254,7 +307,7 @@ message_handler(
          generate_mail = GenerateMail,
          keys = Keys,
          location_generator = LocationGenerator,
-%         degrees_to_meters = DegreesToMeters,
+         degrees_to_meters = _DegreesToMeters,
          x = X,
          y = Y,
          neighbours = Neighbours,
@@ -263,6 +316,7 @@ message_handler(
          pick_mode = PickMode,
          paused = Paused,
          meters_moved = MetersMoved,
+         pki_mode = PkiMode,
          simulated = Simulated,
          nodis_subscription = NodisSubscription} = State) ->
   receive
@@ -274,40 +328,40 @@ message_handler(
           {noreply, State#state{paused = false}};
       {cast, {become_forwarder, MessageId}} ->
           NewPickMode = {is_forwarder, {message_not_in_buffer, MessageId}},
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(#db_player{name = Name,
                                                      pick_mode = NewPickMode});
-              true ->
+              false ->
                   true
           end,
           {noreply, State#state{pick_mode = NewPickMode}};
       {cast, become_nothing} ->
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(#db_player{name = Name,
                                                      pick_mode = is_nothing});
-              true ->
+              false ->
                   true
           end,
           {noreply, State#state{pick_mode = is_nothing}};
       {cast, {become_source, TargetName, MessageId}} ->
           NewPickMode = {is_source, {TargetName, MessageId}},
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(#db_player{name = Name,
                                                      pick_mode = NewPickMode});
-              true ->
+              false ->
                   true
           end,
           {noreply, State#state{pick_mode = NewPickMode}};
       {cast, {become_target, MessageId}} ->
           NewPickMode = {is_target, MessageId},
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(#db_player{name = Name,
                                                      pick_mode = NewPickMode});
-              true ->
+              false ->
                   true
           end,
           {noreply, State#state{pick_mode = NewPickMode}};
@@ -315,14 +369,14 @@ message_handler(
           case player_buffer:pop(Buffer, SkipBufferIndices) of
               {ok, Message} ->
                   NewPickMode = calculate_pick_mode(Buffer, PickMode),
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
                                       buffer_size = player_buffer:size(Buffer),
                                       pick_mode = NewPickMode});
-                      true ->
+                      false ->
                           true
                   end,
                   {reply, From, {ok, Message},
@@ -341,15 +395,15 @@ message_handler(
           end,
           BufferIndex = player_buffer:push(Buffer, Message),
           NewPickMode = calculate_pick_mode(Buffer, PickMode),
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(
                            #db_player{
                               name = Name,
                               buffer_size = player_buffer:size(Buffer),
                               pick_mode = NewPickMode}),
                   true = stats_db:message_buffered(Name);
-              true ->
+              false ->
                   true
           end,
           {reply, From, BufferIndex, State#state{pick_mode = NewPickMode}};
@@ -368,11 +422,11 @@ message_handler(
                   ok = file:write_file(TempFilename, Letter),
                   {ok, _} = maildrop_serv:write(MaildropServPid, TempFilename),
                   ok = file:delete(TempFilename),
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = stats_db:message_received(
                                    MessageId, SenderName, Name);
-                      true ->
+                      false ->
                           true
                   end,
                   case PickMode of
@@ -388,11 +442,11 @@ message_handler(
               true ->
                   %%io:format("GOT DUPLICATE MESSAGE: ~p\n",
                   %%          [{Name, SenderName}]),
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = stats_db:message_duplicate_received(
                                    MessageId, SenderName, Name);
-                      true ->
+                      false ->
                           true
                   end,
                   noreply
@@ -400,7 +454,7 @@ message_handler(
       {cast, pick_as_source} ->
           {noreply, State#state{picked_as_source = true}};
       {call, From, {send_message, MessageId, RecipientName, Letter}} ->
-          case read_public_key(RecipientName) of
+          case read_public_key(PkiServPid, PkiMode, RecipientName) of
               {ok, RecipientPublicKey} ->
                   NameSize = size(Name),
                   EncryptedData =
@@ -412,8 +466,8 @@ message_handler(
                   Message = <<MessageId:64/unsigned-integer,
                               EncryptedData/binary>>,
                   _ = player_buffer:push_many(Buffer, Message, ?K),
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
@@ -421,7 +475,7 @@ message_handler(
                                       pick_mode = PickMode}),
                           true = stats_db:message_created(
                                    MessageId, Name, RecipientName);
-                      true ->
+                      false ->
                           true
                   end,
                   {reply, From, ok};
@@ -430,7 +484,8 @@ message_handler(
           end;
       {call, From, {add_dummy_messages, N}} ->
           RecipientName = <<"p1">>,
-          {ok, RecipientPublicKey} = read_public_key(RecipientName),
+          {ok, RecipientPublicKey} =
+              read_public_key(PkiServPid, PkiMode, RecipientName),
           perform(fun() ->
                           MessageId = erlang:unique_integer([positive]),
                           NameSize = size(Name),
@@ -445,22 +500,22 @@ message_handler(
                               <<MessageId:64/unsigned-integer,
                                 EncryptedData/binary>>,
                           _ = player_buffer:push_many(Buffer, Message, ?K),
-                          if
-                              Simulated ->
+                          case Simulated of
+                              true ->
                                   true = stats_db:message_created(
                                            MessageId, Name, RecipientName);
-                              true ->
+                              false ->
                                   true
                           end
                   end, N),
-          if
-              Simulated ->
+          case Simulated of
+              true ->
                   true = player_db:update(
                            #db_player{
                               name = Name,
                               buffer_size = player_buffer:size(Buffer),
                               pick_mode = PickMode});
-              true ->
+              false ->
                   true
           end,
           {reply, From, ok};
@@ -499,14 +554,14 @@ message_handler(
                   NewNeighbours =
                       [{{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}|
                        Neighbours],
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
                                       neighbours =
                                           get_player_names(NewNeighbours)});
-                      true ->
+                      false ->
                           true
                   end,
                   {noreply, State#state{neighbours = NewNeighbours}};
@@ -531,14 +586,14 @@ message_handler(
                       lists:keydelete(
                         {NeighbourSyncIpAddress, NeighbourSyncPort}, 1,
                         Neighbours),
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = player_db:update(
                                    #db_player{
                                       name = Name,
                                       neighbours =
                                           get_player_names(NewNeighbours)});
-                      true ->
+                      false ->
                           ok
                   end,
                   {noreply, State#state{neighbours = NewNeighbours}};
@@ -580,11 +635,11 @@ message_handler(
       {location_updated, Timestamp} ->
           case LocationGenerator() of
               end_of_locations ->
-                  if
-                      Simulated ->
+                  case Simulated of
+                      true ->
                           true = player_db:update(
                                    #db_player{name = Name, is_zombie = true});
-                      true ->
+                      false ->
                           true
                   end,
                   {noreply, State#state{is_zombie = true}};
@@ -592,17 +647,17 @@ message_handler(
                   if
                       X == none ->
                           ?dbg_log({initial_location, NextX, NextY}),
-                          if
-                              Simulated ->
-                                  true = player_db:add(Name, NextX, NextY);
+                          case Simulated of
                               true ->
+                                  true = player_db:add(Name, NextX, NextY);
+                              false ->
                                   true
                           end;
                       true ->
                           ?dbg_log({location_updated,
                                     Name, X, Y, NextX, NextY}),
-                          if
-                              Simulated ->
+                          case Simulated of
+                              true ->
                                   true = player_db:update(
                                            #db_player{
                                               name = Name,
@@ -611,7 +666,7 @@ message_handler(
                                               buffer_size =
                                                   player_buffer:size(Buffer),
                                               pick_mode = PickMode});
-                              true ->
+                              false ->
                                   true
                           end
                   end,

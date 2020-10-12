@@ -1,6 +1,6 @@
 -module(player_sup).
 -behaviour(supervisor).
--export([start_link/0, start_link/12]).
+-export([start_link/0, start_link/13]).
 -export([attach_child/3]).
 -export([init/1]).
 
@@ -9,19 +9,12 @@
 start_link() ->
     start_link([]).
 
-%% NOTE: Used by the simulator
-start_link(Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
-           DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address, PkiDataDir) ->
-    start_link([Name, Password, SyncAddress, TempDir, Keys, F,
-                GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
-                Pop3Address, PkiDataDir]).
-
 start_link(Args) ->
     case supervisor:start_link(?MODULE, Args) of
         {ok, Pid} ->
             Children = supervisor:which_children(Pid),
             ok = attach_child(player_serv,
-                              [mail_serv, maildrop_serv, nodis_serv],
+                              [mail_serv, maildrop_serv, nodis_serv, pki_serv],
                               Children),
             ok = attach_child(player_sync_serv, player_serv, Children),
             ok = attach_child(smtp_proxy_serv, player_serv, Children),
@@ -30,6 +23,14 @@ start_link(Args) ->
         Error ->
             Error
     end.
+
+%% NOTE: Used by simulator_serv.erl
+start_link(Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
+           DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address,
+           LocalPkiServerDataDir, PkiMode) ->
+    start_link([Name, Password, SyncAddress, TempDir, Keys, F,
+                GetLocationGenerator, DegreesToMeter, SmtpAddress, SpoolerDir,
+                Pop3Address, LocalPkiServerDataDir, PkiMode]).
 
 attach_child(SourceId, TargetId, Children) ->
     {value, {SourceId, SourcePid, _, _}} =
@@ -66,12 +67,34 @@ init([]) ->
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
     [SmtpAddress] = config:lookup_children([address], SmtpProxy),
     [Pop3Address] = config:lookup_children([address], Pop3Proxy),
-    PkiDataDir = config:lookup([player, pki, 'data-dir']),
+    LocalPkiServerDataDir =
+        config:lookup([player, 'local-pki-server', 'data-dir']),
+    PkiMode =
+        case config:lookup([player, 'pki-access-settings', mode]) of
+            local ->
+                local;
+            global ->
+                [PkiAccess, PkiServerTorAddress, PkiServerTcpAddress] =
+                    config:lookup_children(
+                      [access,
+                       'pki-server-tor-address',
+                       'pki-server-tcp-address'],
+                      config:lookup([player, 'pki-access-settings', global])),
+                case PkiAccess of
+                    tor_only ->
+                        {global, {tor_only, PkiServerTorAddress}};
+                    tcp_only ->
+                        {global, {tcp_only, PkiServerTcpAddress}};
+                    tor_fallback_to_tcp ->
+                        {global, {tor_fallback_to_tcp,
+                                  PkiServerTorAddress, PkiServerTcpAddress}}
+                end
+        end,
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
                     [Name, Password, SyncAddress, TempDir, Keys, not_set,
-                     not_set, false]}},
+                     not_set, PkiMode, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -96,9 +119,9 @@ init([]) ->
                     [#{simulation => true,
                        ping_interval => 500,
                        max_ping_lost => 2}]}},
-    PkiServSpec =
+    LocalPkiServSpec =
         #{id => pki_serv,
-          start => {pki_serv, start_link, [none, PkiDataDir]}},
+          start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
@@ -106,14 +129,15 @@ init([]) ->
                                        SmtpProxyServSpec,
                                        Pop3ProxyServSpec,
                                        NodisServSpec,
-                                       PkiServSpec]}};
+                                       LocalPkiServSpec]}};
 init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
-      DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address, PkiDataDir]) ->
+      DegreesToMeter, SmtpAddress, SpoolerDir, Pop3Address,
+      LocalPkiServerDataDir, PkiMode]) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
                     [Name, Password, SyncAddress, TempDir, Keys,
-                     GetLocationGenerator, DegreesToMeter, true]}},
+                     GetLocationGenerator, DegreesToMeter, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -138,9 +162,10 @@ init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
                     [#{simulation => true,
                        ping_interval => 500,
                        max_ping_lost => 2}]}},
-    PkiServSpec =
+    LocalPkiServSpec =
         #{id => pki_serv,
-          start => {pki_serv, start_link, [none, PkiDataDir]}},
+          start => {pki_serv, start_link,
+                    [local, LocalPkiServerDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
@@ -148,4 +173,4 @@ init([Name, Password, SyncAddress, TempDir, Keys, F, GetLocationGenerator,
                                        SmtpProxyServSpec,
                                        Pop3ProxyServSpec,
                                        NodisServSpec,
-                                       PkiServSpec]}}.
+                                       LocalPkiServSpec]}}.

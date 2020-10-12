@@ -239,11 +239,11 @@ data(#channel{
 %                        _ ->
 %                            ok
 %                    end,
-                    if
-                        Simulated ->
+                    case Simulated of
+                        true ->
                             ok = simulator_serv:elect_source_and_target(
                                    MessageId, ServletState#state.name, TargetName);
-                        true ->
+                        false ->
                             ok
                     end,
                     ?dbg_log({send_mail, ServletState#state.name, TargetName,

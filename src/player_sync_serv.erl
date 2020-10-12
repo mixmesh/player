@@ -106,7 +106,7 @@ initial_message_handler(State) ->
              State#state{player_serv_pid = PlayerServPid}}
     end.
 
-message_handler(#state{parent = _Parent,
+message_handler(#state{parent = Parent,
                        options = Options,
                        listen_socket = ListenSocket,
                        acceptors = Acceptors,
@@ -125,6 +125,8 @@ message_handler(#state{parent = _Parent,
         {system, From, Request} ->
             {system, From, Request};
         {'EXIT', PlayerServPid, Reason} ->
+            exit(Reason);
+        {'EXIT', Parent, Reason} ->
             exit(Reason);
         {'EXIT', Pid, normal} ->
             case lists:member(Pid, Acceptors) of
