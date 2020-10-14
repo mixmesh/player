@@ -12,7 +12,7 @@
          password                       :: binary(),
          login_state = waiting_for_name :: waiting_for_name |
                                            {waiting_for_password, binary()},
-         check_credentials              :: fun(),
+         check_credentials              :: function(),
          reverse_path = not_set         :: binary() | not_set,
          forward_path = not_set         :: binary() | not_set,
          message_size = 64 * 1024       :: integer(),

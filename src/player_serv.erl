@@ -14,7 +14,6 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
--include_lib("simulator/include/player_db.hrl").
 -include_lib("player/include/player_serv.hrl").
 -include_lib("player/include/player_sync_serv.hrl").
 -include_lib("elgamal/include/elgamal.hrl").

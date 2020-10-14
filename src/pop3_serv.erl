@@ -12,7 +12,7 @@
         {name                        :: binary(),
          password                    :: binary(),
          login_name = not_set        :: binary() | not_set,
-         check_credentials           :: fun(),
+         check_credentials           :: function(),
          maildrop_serv_pid = not_set :: pid() | not_set,
          temp_dir                    :: binary()}).
 

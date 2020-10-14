@@ -12,4 +12,13 @@
          sync_address    :: {inet:ip4_address(), inet:port_number()},
          smtp_address    :: {inet:ip4_address(), inet:port_number()}}).
 
+-record(db_player,
+        {name                  :: binary(),
+         x = not_set           :: number() | not_set,
+         y = not_set           :: number() | not_set,
+         buffer_size = not_set :: integer() | not_set,
+         neighbours = not_set  :: [#player{}] | not_set,
+         is_zombie = not_set   :: boolean() | not_set,
+         pick_mode = not_set   :: player_serv:pick_mode() | not_set}).
+
 -endif.
