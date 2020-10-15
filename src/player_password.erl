@@ -10,7 +10,6 @@
 salt(Password) ->
     Salt = crypto:strong_rand_bytes(32),
     SaltedDigest = crypto:hash(sha256, [Salt, Password]),
-    io:format("SNUVA: ~p\n", [SaltedDigest]),
     base64:encode(?l2b([Salt, SaltedDigest])).
 
 %% Exported: check
