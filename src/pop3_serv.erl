@@ -1,7 +1,7 @@
--module( pop3_serv).
--export([start_link/4]).
+-module(pop3_serv).
+-export([start_link/5]).
 
-%% DEBUG: mpop -d --host=127.0.0.1 --port=32098 --deliver=mbox,fnutt --keep=on --auth=user --user=p2 --passwordeval='echo "baz"'
+%% DEBUG: mpop --debug --host=127.0.0.1 --port=29900 --deliver=mbox,fnutt --keep=on --auth=user --user=alice --tls=on --tls-starttls=off --tls-certcheck=off --passwordeval='echo "baz"'
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
@@ -10,7 +10,7 @@
 
 -record(state,
         {name                        :: binary(),
-         password                    :: binary(),
+         password_digest             :: binary(),
          login_name = not_set        :: binary() | not_set,
          check_credentials           :: function(),
          maildrop_serv_pid = not_set :: pid() | not_set,
@@ -18,7 +18,7 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, {IpAddress, Port}) ->
+start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -28,11 +28,12 @@ start_link(Name, Password, TempDir, {IpAddress, Port}) ->
         end,
     Options =
         #pop3lib_options{
+           cert_filename = CertFilename,
            timeout = 10 * 60 * 1000,
            greeting = <<"[127.0.0.1] POP3 server ready">>,
            initial_servlet_state =
                #state{name = Name,
-                      password = Password,
+                      password_digest = PasswordDigest,
                       check_credentials = fun check_credentials/3,
                       temp_dir = TempDir},
            servlets = [#servlet{command = stat, handler = fun stat/2},
@@ -44,16 +45,19 @@ start_link(Name, Password, TempDir, {IpAddress, Port}) ->
                        #servlet{command = top, handler = fun top/2},
                        #servlet{command = uidl, handler = fun uidl/2},
                        #servlet{command = user, handler = fun user/2},
-                       #servlet{command = pass, handler = fun pass/2}],
+                       #servlet{command = pass, handler = fun pass/2},
+                       #servlet{command = capa, handler = fun capa/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_tag_log(system, "POP3 server starting for ~s on ~s:~w",
                     [Name, inet:ntoa(IpAddress), Port]),
     pop3lib:start_link(IpAddress, Port, Options).
 
-check_credentials(#state{name = Name, password = Password}, LoginName,
-                  LoginPassword) ->
-    (Name == LoginName) andalso (Password == LoginPassword).
+check_credentials(#state{name = Name, password_digest = PasswordDigest}, Name,
+                  Password) ->
+    player_password:check(Password, PasswordDigest);
+check_credentials(_State, _Name, _Password) ->
+    false.
 
 %% https://tools.ietf.org/html/rfc1939#page-6
 stat(#channel{servlet_state =
@@ -341,6 +345,12 @@ pass(#channel{
                                    servlet_state =
                                        State#state{login_name = not_set}}}
     end.
+
+%% https://tools.ietf.org/html/rfc1939#page-14
+capa(Channel, Args) ->
+    ?dbg_log({capa, Channel, Args}),
+    #response{info = <<"list of capabilities follows">>,
+              body = [<<"UIDL">>, <<"USER">>, <<"SASL PLAIN">>]}.
 
 %%
 %% Utilities

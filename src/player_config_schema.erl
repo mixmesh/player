@@ -2,6 +2,7 @@
 -export([get/0]).
 
 -include_lib("apptools/include/config_schema.hrl").
+-include_lib("apptools/include/shorthand.hrl").
 
 get() ->
     [{player,
@@ -9,6 +10,22 @@ get() ->
         #json_type{
            name = bool,
            typical = false,
+           reloadable = false}},
+       {'PIN',
+        #json_type{
+           name = string,
+           typical = <<"000000">>,
+           convert =
+               fun(Pin) when size(Pin) /= 6 ->
+                       throw({failed, "PIN must contain six digits"});
+                  (Pin) ->
+                       try
+                           _ = ?b2i(Pin),
+                           Pin
+                       catch _:_ ->
+                               throw({failed, "PIN must only contain digits"})
+                       end
+               end,
            reloadable = false}},
        {username,
         #json_type{
@@ -73,12 +90,32 @@ get() ->
           #json_type{
              name = ipv4address_port,
              typical = {{242,45,0,34}, 20000},
+             reloadable = false}},
+         {'cert-filename',
+          #json_type{
+             name = readable_file,
+             typical = <<"/tmp/cert.pem">>,
+             reloadable = false}},
+         {'password-digest',
+          #json_type{
+             name = string,
+             typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
              reloadable = false}}]},
        {'pop3-server',
         [{address,
           #json_type{
              name = ipv4address_port,
              typical = {{242,45,0,34}, 30000},
+             reloadable = false}},
+         {'cert-filename',
+          #json_type{
+             name = readable_file,
+             typical = <<"/tmp/cert.pem">>,
+             reloadable = false}},
+         {'password-digest',
+          #json_type{
+             name = string,
+             typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
              reloadable = false}}]},
        {'local-pki-server',
         [{'data-dir',

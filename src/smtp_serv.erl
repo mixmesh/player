@@ -1,7 +1,7 @@
 -module(smtp_serv).
--export([start_link/5]).
+-export([start_link/6]).
 
-%% DEBUG: swaks --from alice@obscrete.net --to bob@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --auth-password baz --body 'KILLME' --silent"
+%% DEBUG: swaks --from alice@obscrete.net --to alice@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --tls-on-connect --auth-password baz --body "FOO"
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
@@ -9,7 +9,7 @@
 
 -record(state,
         {name                           :: binary(),
-         password                       :: binary(),
+         password_digest                :: binary(),
          login_state = waiting_for_name :: waiting_for_name |
                                            {waiting_for_password, binary()},
          check_credentials              :: function(),
@@ -22,7 +22,8 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, TempDir, {IpAddress, Port}, Simulated) ->
+start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
+           Simulated) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -32,12 +33,13 @@ start_link(Name, Password, TempDir, {IpAddress, Port}, Simulated) ->
         end,
     Options =
         #smtplib_options{
+           cert_filename = CertFilename,
            timeout = 10 * 60 * 1000,
            greeting = <<"[127.0.0.1] ESMTP server ready">>,
            authenticate = yes,
            initial_servlet_state =
                #state{name = Name,
-                      password = Password,
+                      password_digest = PasswordDigest,
                       check_credentials = fun check_credentials/4,
                       temp_dir = TempDir,
                       simulated = Simulated},
@@ -59,9 +61,11 @@ start_link(Name, Password, TempDir, {IpAddress, Port}, Simulated) ->
                     [Name, inet:ntoa(IpAddress), Port]),
     smtplib:start_link(IpAddress, Port, Options).
 
-check_credentials(#state{name = Name, password = Password}, _Autczid, Authcid,
-                  LoginPassword) ->
-    (Name == Authcid) andalso (Password == LoginPassword).
+check_credentials(#state{name = Name, password_digest = PasswordDigest},
+                  _Autczid, Name, Password) ->
+    player_password:check(Password, PasswordDigest);
+check_credentials(_State, _Autczid, _Authcid, _Password) ->
+    false.
 
 %% https://tools.ietf.org/html/rfc2821#section-4.1.1.1
 helo(#channel{servlet_state = ServletState} = Channel, Args) ->
