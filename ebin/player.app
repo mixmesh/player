@@ -15,4 +15,4 @@
              smtp_serv]},
   {registered, []},
   {mod, {player_app, []}},
-  {applications, [kernel, stdlib, sasl, pki]}]}.
+  {applications, [kernel, stdlib, sasl, pki, mail]}]}.
