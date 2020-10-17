@@ -55,7 +55,7 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
 
 check_credentials(#state{name = Name, password_digest = PasswordDigest}, Name,
                   Password) ->
-    player_password:check(Password, PasswordDigest);
+    player_crypto:check_digested_password(Password, PasswordDigest);
 check_credentials(_State, _Name, _Password) ->
     false.
 

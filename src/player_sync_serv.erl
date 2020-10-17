@@ -193,7 +193,7 @@ send_messages(PlayerServPid, Socket, N, SkipBufferIndices) ->
     case player_serv:buffer_pop(PlayerServPid, SkipBufferIndices) of
         {ok, <<MessageId:64/unsigned-integer,
                EncryptedData/binary>>} ->
-            RandomizedData = belgamal:urandomize(EncryptedData),
+            RandomizedData = elgamal:urandomize(EncryptedData),
             RandomizedMessage =
                 <<MessageId:64/unsigned-integer, RandomizedData/binary>>,
             case gen_tcp:send(Socket, RandomizedMessage) of
@@ -218,14 +218,15 @@ receive_messages(PlayerServPid, #player_sync_serv_options{
             {ok, NewBufferIndices};
         {ok, <<MessageId:64/unsigned-integer,
                EncryptedData/binary>> = Message} ->
-            case belgamal:udecrypt(EncryptedData, SecretKey) of
+            case elgamal:udecrypt(EncryptedData, SecretKey) of
                 mismatch ->
                     BufferIndex =
                         player_serv:buffer_push(PlayerServPid, Message),
                     receive_messages(PlayerServPid, Options, Socket, M - 1,
                                      [BufferIndex|NewBufferIndices]);
-                DecryptedData ->
+                {SenderNym, Signature, DecryptedData} ->
                     ok = player_serv:got_message(PlayerServPid, MessageId,
+                                                 SenderNym, Signature,
                                                  DecryptedData),
                     receive_messages(PlayerServPid, Options, Socket, M - 1,
                                      NewBufferIndices)

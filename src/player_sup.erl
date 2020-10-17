@@ -53,14 +53,21 @@ attach_child(SourceId, TargetId, Children) ->
 %% Exported: init
 
 init(normal) ->
-    [Name, Password, SyncAddress, TempDir, BufferDir, Spiridon, Maildrop,
-     SmtpServer, Pop3Server] =
+    [Pin, PinSalt] =
+        config:lookup_children([pin, 'pin-salt'], config:lookup([])),
+    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
+     Maildrop, SmtpServer, Pop3Server] =
         config:lookup_children(
-          [username, password, 'sync-address', 'temp-dir', 'buffer-dir',
+          [username, 'pki-password', 'sync-address', 'temp-dir', 'buffer-dir',
            spiridon, maildrop, 'smtp-server', 'pop3-server'],
           config:lookup([player])),
-    [F, PublicKey, SecretKey] =
+    [F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
+    PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
+    SharedKey = player_crypto:pin_to_key(Pin, PinSalt),
+    {ok, DecryptedSecretKey} =
+        player_crypto:decrypt_secret_key(SharedKey, EncryptedSecretKey),
+    SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
     Keys = {PublicKey, SecretKey},
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
     [SmtpAddress, SmtpCertFilename, SmtpPasswordDigest] =
@@ -95,7 +102,7 @@ init(normal) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+                    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                      not_set, not_set, PkiMode, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
@@ -133,7 +140,7 @@ init(normal) ->
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
         name = Name,
-        password = Password,
+        pki_password = PkiPassword,
         sync_address = SyncAddress,
         temp_dir = TempDir,
         buffer_dir = BufferDir,
@@ -153,7 +160,7 @@ init(#simulated_player_serv_config{
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+                    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                      GetLocationGenerator, DegreesToMeters, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,

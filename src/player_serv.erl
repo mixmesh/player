@@ -4,7 +4,7 @@
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
 -export([buffer_pop/2, buffer_push/2, buffer_size/1]).
--export([got_message/3]).
+-export([got_message/5]).
 -export([pick_as_source/1]).
 -export([send_message/4]).
 -export([add_dummy_messages/2]).
@@ -35,7 +35,7 @@
 -record(state,
         {parent                      :: pid(),
          name                        :: binary(),
-         password                    :: binary(),
+         pki_password                :: binary(),
          mail_serv_pid = not_set     :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
          pki_serv_pid = not_set      :: pid() | not_set,
@@ -68,18 +68,18 @@
 
 %% Exported: start_link
 
-start_link(Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+start_link(Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
            GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, Password, SyncAddress, TempDir, BufferDir,
+               init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir,
                     Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
                     Simulated)
        end,
        fun initial_message_handler/1).
 
 initial_message_handler(#state{name = Name,
-                               password = Password,
+                               pki_password = PkiPassword,
                                keys = {PublicKey, _SecretKey},
                                pki_mode = PkiMode} = State) ->
     receive
@@ -88,7 +88,7 @@ initial_message_handler(#state{name = Name,
                        {nodis_serv, NodisServPid},
                        {pki_serv, PkiServPid}]} ->
             {ok, NodisSubscription} = nodis_srv:subscribe(NodisServPid),
-            ok = publish_public_key(PkiServPid, PkiMode, Name, Password,
+            ok = publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
                                     PublicKey),
             {swap_message_handler, fun message_handler/1,
              State#state{mail_serv_pid = MailServPid,
@@ -149,8 +149,9 @@ buffer_size(Pid) ->
 
 %% Exported: got_message
 
-got_message(Pid, MessageId, DecryptedData) ->
-    serv:cast(Pid, {got_message, MessageId, DecryptedData}).
+got_message(Pid, MessageId, SenderNym, Signature, DecryptedData) ->
+    serv:cast(Pid, {got_message, MessageId, SenderNym, Signature,
+                    DecryptedData}).
 
 %% Exported: pick_as_source
 
@@ -181,7 +182,7 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, Password, SyncAddress, TempDir, BufferDir, Keys,
+init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
     case player_buffer:new(BufferDir) of
@@ -196,7 +197,7 @@ init(Parent, Name, Password, SyncAddress, TempDir, BufferDir, Keys,
                             "Player server for ~s has been started", [Name]),
             {ok, #state{parent = Parent,
                         name = Name,
-                        password = Password,
+                        pki_password = PkiPassword,
                         sync_address = SyncAddress,
                         temp_dir = TempDir,
                         buffer_dir = BufferDir,
@@ -222,7 +223,7 @@ message_handler(
          buffer = Buffer,
          received_messages = ReceivedMessages,
          generate_mail = GenerateMail,
-         keys = Keys,
+         keys = {_PublicKey, SecretKey} = Keys,
          location_generator = LocationGenerator,
          degrees_to_meters = _DegreesToMeters,
          x = X,
@@ -326,17 +327,41 @@ message_handler(
           {reply, From, BufferIndex, State#state{pick_mode = NewPickMode}};
       {call, From, buffer_size} ->
           {reply, From, player_buffer:size(Buffer)};
-      {cast, {got_message, _, _}} when IsZombie ->
+      {cast, {got_message, _, _, _, _}} when IsZombie ->
           noreply;
-      {cast, {got_message, MessageId, <<MessageId:64/unsigned-integer,
-                                        SenderNameSize:8,
-                                        SenderName:SenderNameSize/binary,
-                                        Letter/binary>>}} ->
+      {cast, {got_message, MessageId, SenderNym, Signature,
+              <<MessageId:64/unsigned-integer,
+                SenderNameSize:8,
+                SenderName:SenderNameSize/binary,
+                Letter/binary>> = DecryptedData}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
-                  %%io:format("GOT MESSAGE: ~p\n", [{Name, SenderName}]),
                   TempFilename = mail_util:mktemp(TempDir),
                   ok = file:write_file(TempFilename, Letter),
+                  case read_public_key(PkiServPid, PkiMode, SenderNym) of
+                      {ok, SenderPublicKey} ->
+                          Verified = elgamal:verify(Signature, DecryptedData,
+                                                    SenderPublicKey);
+                      {error, _Reason} ->
+                          Verified = false
+                  end,
+                  case Verified of
+                      true ->
+                          ?daemon_tag_log(
+                             system,
+                             "~s received a verified message from ~s (~w)",
+                             [Name, SenderName, MessageId]);
+                      false ->
+                          ?daemon_tag_log(
+                             system,
+                             "~s received an *unverified* message from ~s (~w)",
+                             [Name, SenderName, MessageId])
+                  end,
+                  %% FIXME: Feed the verified status into the maildrop in
+                  %% some way. Most probably we should add a new mail header
+                  %% to the incoming mail before we write it to the maildrop.
+                  %% I have not found any standard mail header for this
+                  %% purpose. More investigation is needed.
                   {ok, _} = maildrop_serv:write(MaildropServPid, TempFilename),
                   ok = file:delete(TempFilename),
                   case Simulated of
@@ -357,8 +382,9 @@ message_handler(
                   {noreply, State#state{received_messages =
                                             [MessageId, ReceivedMessages]}};
               true ->
-                  %%io:format("GOT DUPLICATE MESSAGE: ~p\n",
-                  %%          [{Name, SenderName}]),
+                  ?daemon_tag_log(
+                     system, "~s received a duplicated message from ~s (~w)",
+                     [Name, SenderName, MessageId]),
                   case Simulated of
                       true ->
                           true = stats_db:message_duplicate_received(
@@ -375,11 +401,13 @@ message_handler(
               {ok, RecipientPublicKey} ->
                   NameSize = size(Name),
                   EncryptedData =
-                      belgamal:uencrypt(
+                      elgamal:uencrypt(
                         <<MessageId:64/unsigned-integer,
                           NameSize:8,
                           Name/binary,
-                          Letter/binary>>, RecipientPublicKey),
+                          Letter/binary>>,
+                        RecipientPublicKey,
+                        SecretKey),
                   Message = <<MessageId:64/unsigned-integer,
                               EncryptedData/binary>>,
                   _ = player_buffer:push_many(Buffer, Message, ?K),
@@ -408,11 +436,13 @@ message_handler(
                           NameSize = size(Name),
                           Letter = <<"foo\r\n\r\n">>,
                           EncryptedData =
-                              belgamal:uencrypt(
+                              elgamal:uencrypt(
                                 <<MessageId:64/unsigned-integer,
                                   NameSize:8,
                                   Name/binary,
-                                  Letter/binary>>, RecipientPublicKey),
+                                  Letter/binary>>,
+                                RecipientPublicKey,
+                                SecretKey),
                           Message =
                               <<MessageId:64/unsigned-integer,
                                 EncryptedData/binary>>,
@@ -701,26 +731,26 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
             {error, Reason}
     end.
 
-publish_public_key(PkiServPid, local, Name, Password, PublicKey) ->
+publish_public_key(PkiServPid, local, Name, PkiPassword, PublicKey) ->
     case pki_serv:read(PkiServPid, Name) of
         {ok, #pki_user{public_key = PublicKey}} ->
             ?daemon_tag_log(system, "PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             ok = pki_serv:update(PkiServPid,
-                                 PkiUser#pki_user{password = Password,
+                                 PkiUser#pki_user{password = PkiPassword,
                                                   public_key = PublicKey}),
             ?daemon_tag_log(system, "Updated the PKI server", []),
             ok;
         {error, no_such_user} ->
             ok = pki_serv:create(PkiServPid,
-                                 #pki_user{name = Name,
-                                           password = Password,
+                                 #pki_user{nym = Name,
+                                           password = PkiPassword,
                                            public_key = PublicKey}),
             ?daemon_tag_log(system, "Created an entry in the PKI server", []),
             ok
     end;
-publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
+publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, PkiPassword,
                    PublicKey) ->
     case pki_network_client:read(
            Name, #pki_network_client_options{pki_access = PkiAccess},
@@ -730,7 +760,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
             ok;
         {ok, PkiUser} ->
             case pki_network_client:update(
-                   PkiUser#pki_user{password = Password,
+                   PkiUser#pki_user{password = PkiPassword,
                                     public_key = PublicKey},
                    #pki_network_client_options{pki_access = PkiAccess},
                    ?PKI_NETWORK_TIMEOUT) of
@@ -743,13 +773,13 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
                        "Could not update the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                    publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
                                        PublicKey)
             end;
         {error, <<"No such user">>} ->
             case pki_network_client:create(
-                   #pki_user{name = Name,
-                             password = Password,
+                   #pki_user{nym = Name,
+                             password = PkiPassword,
                              public_key = PublicKey},
                    #pki_network_client_options{pki_access = PkiAccess},
                    ?PKI_NETWORK_TIMEOUT) of
@@ -763,7 +793,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
                        "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, Password,
+                    publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
                                        PublicKey)
             end;
         {error, Reason} ->
@@ -772,6 +802,6 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, Password,
                "Could not contact PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(PkiServPid, PkiMode, Name, Password,
+            publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
                                PublicKey)
     end.

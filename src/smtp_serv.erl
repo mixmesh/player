@@ -63,7 +63,7 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
 
 check_credentials(#state{name = Name, password_digest = PasswordDigest},
                   _Autczid, Name, Password) ->
-    player_password:check(Password, PasswordDigest);
+    player_crypto:check_digested_password(Password, PasswordDigest);
 check_credentials(_State, _Autczid, _Authcid, _Password) ->
     false.
 
@@ -141,7 +141,7 @@ auth(#channel{
                             #response{
                                status = 535,
                                info =
-                                   <<"1authentication credentials invalid">>}
+                                   <<"authentication credentials invalid">>}
                     end;
                 _ ->
                     #response{status = 500,
@@ -327,7 +327,7 @@ any(#channel{
                 false ->
                     #response{
                        status = 535,
-                       info = <<"4authentication credentials invalid">>}
+                       info = <<"authentication credentials invalid">>}
             end;
         _ ->
             #response{status = 502, info = <<"command not implemented">>}

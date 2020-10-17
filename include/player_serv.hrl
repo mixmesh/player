@@ -25,7 +25,7 @@
 
 -record(simulated_player_serv_config,
         {name :: binary(),
-         password :: binary(),
+         pki_password :: binary(),
          sync_address :: {inet:ip_address(), inet:port_number()},
          temp_dir :: binary(),
          buffer_dir :: binary(),

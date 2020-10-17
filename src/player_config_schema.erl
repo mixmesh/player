@@ -11,28 +11,12 @@ get() ->
            name = bool,
            typical = false,
            reloadable = false}},
-       {'PIN',
-        #json_type{
-           name = string,
-           typical = <<"000000">>,
-           convert =
-               fun(Pin) when size(Pin) /= 6 ->
-                       throw({failed, "PIN must contain six digits"});
-                  (Pin) ->
-                       try
-                           _ = ?b2i(Pin),
-                           Pin
-                       catch _:_ ->
-                               throw({failed, "PIN must only contain digits"})
-                       end
-               end,
-           reloadable = false}},
        {username,
         #json_type{
            name = string,
            typical = <<"johndoe">>,
            reloadable = false}},
-       {password,
+       {'pki-password',
         #json_type{
            name = string,
            typical = <<"smellyfeets">>,
@@ -66,18 +50,12 @@ get() ->
          {'public-key',
           #json_type{
              name = base64,
-             typical = <<"Zm9v">>,
-             convert = fun(Binary) ->
-                               belgamal:binary_to_public_key(Binary)
-                       end,
+             typical = <<"BWFsaWNlxgDD8BleR0lZOyTVMuguqs9IE1E7SuWgsyyNNNp4vrrQZbpF8PSiEhju2dL3cMnc5ZFAoe41NQ4+C45r+Xwk9dpo3sn5Uwj+ETZw5nC/StW+YeAlApeCZVL126AcOhQPtgRNyajc84Qg0dM7K5UDic/81kb0EqkaZ1awtwUrmPs=">>,
              reloadable = false}},
          {'secret-key',
           #json_type{
              name = base64,
-             typical = <<"Zm9v">>,
-             convert = fun(Binary) ->
-                               belgamal:binary_to_secret_key(Binary)
-                       end,
+             typical = <<"JUitY4g+ezCu1VJ9G11RSnfvKqieoGb+C+Q+CH6f+6EWC/lu+YAey2g9iTcpf/xoa501SFfUTCG1cV16tU/o/VOd18/zE98F7Jd6e/2NeiM6yMrCQrbFnY/cugQPwbKw6jf8lnxiO1+kBdqX5a5Fgs7eTsChd44lJY1QeFM7/rNECWKmPonIY/NwD3mcA3iBpUwmD0RYGdEB6IXFc30xgR2avOAWd0e+5PMnyvVw//OC12vvkZAdtK4oL1gTfHoQ9B5YGILeFmZdScfrAMXaY7BkVqiCpIa+xK86dtqzf0Afa7G/vg3Lj8wf2CXhq0e4+wqXSqBuIVhLn9TxIPe1jfA5r4IfOqCMRqZKmbQD3ltxp7Ojt79leAOl2PARJFOd+XMlISNtJ4WcYXyboeRAzw==">>,
              reloadable = false}}]},
        {maildrop,
         [{'spooler-dir',
@@ -98,9 +76,9 @@ get() ->
              reloadable = false}},
          {'password-digest',
           #json_type{
-             name = string,
-             typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
-             reloadable = false}}]},
+              name = base64,
+              typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
+              reloadable = false}}]},
        {'pop3-server',
         [{address,
           #json_type{
@@ -114,7 +92,7 @@ get() ->
              reloadable = false}},
          {'password-digest',
           #json_type{
-             name = string,
+             name = base64,
              typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
              reloadable = false}}]},
        {'local-pki-server',
