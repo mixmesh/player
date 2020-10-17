@@ -1,4 +1,4 @@
--module(player_config_schema).
+-module(player_schema).
 -export([get/0]).
 
 -include_lib("apptools/include/config_schema.hrl").
