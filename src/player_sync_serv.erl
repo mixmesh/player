@@ -10,10 +10,10 @@
 %% Debug: length([erlang:port_info(P)||P <- erlang:ports()]).
 
 -record(state,
-        {parent                    :: pid(),
-         options                   :: #player_sync_serv_options{},
-         listen_socket             :: inet:socket(),
-         acceptors                 :: [pid()],
+        {parent :: pid(),
+         options :: #player_sync_serv_options{},
+         listen_socket :: inet:socket(),
+         acceptors :: [pid()],
          player_serv_pid = not_set :: pid() | not_set}).
 
 %% Exported: connect

@@ -8,17 +8,17 @@
 -include_lib("mail/include/smtplib.hrl").
 
 -record(state,
-        {name                           :: binary(),
-         password_digest                :: binary(),
+        {name :: binary(),
+         password_digest :: binary(),
          login_state = waiting_for_name :: waiting_for_name |
                                            {waiting_for_password, binary()},
-         check_credentials              :: function(),
-         reverse_path = not_set         :: binary() | not_set,
-         forward_path = not_set         :: binary() | not_set,
-         message_size = 64 * 1024       :: integer(),
-         player_serv_pid = not_set      :: pid() | not_set,
-         temp_dir                       :: binary(),
-         simulated                      :: boolean()}).
+         check_credentials :: function(),
+         reverse_path = not_set :: binary() | not_set,
+         forward_path = not_set :: binary() | not_set,
+         message_size = 64 * 1024 :: integer(),
+         player_serv_pid = not_set :: pid() | not_set,
+         temp_dir :: binary(),
+         simulated :: boolean()}).
 
 %% Exported: start_link
 

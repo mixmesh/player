@@ -9,12 +9,12 @@
 -include_lib("mail/include/maildrop_serv.hrl").
 
 -record(state,
-        {name                        :: binary(),
-         password_digest             :: binary(),
-         login_name = not_set        :: binary() | not_set,
-         check_credentials           :: function(),
+        {name :: binary(),
+         password_digest :: binary(),
+         login_name = not_set :: binary() | not_set,
+         check_credentials :: function(),
          maildrop_serv_pid = not_set :: pid() | not_set,
-         temp_dir                    :: binary()}).
+         temp_dir :: binary()}).
 
 %% Exported: start_link
 

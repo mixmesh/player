@@ -11,9 +11,9 @@
 -include_lib("apptools/include/serv.hrl").
 
 -record(state,
-        {parent                    :: pid(),
-         name                      :: binary(),
-         smtp_address              :: {inet:ip4_address(), inet:port_number()},
+        {parent :: pid(),
+         name :: binary(),
+         smtp_address :: {inet:ip4_address(), inet:port_number()},
          smtp_password = <<"baz">> :: binary()}).
 
 %% Exported: start_link
