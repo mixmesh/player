@@ -12,15 +12,15 @@
 
 -record(state,
         {parent :: pid(),
-         name :: binary(),
+         nym :: binary(),
          smtp_address :: {inet:ip4_address(), inet:port_number()},
          smtp_password = <<"baz">> :: binary()}).
 
 %% Exported: start_link
 
-start_link(Name, SmtpAddress) ->
+start_link(Nym, SmtpAddress) ->
     ?spawn_server(
-       fun(Parent) -> init(Parent, Name, SmtpAddress) end,
+       fun(Parent) -> init(Parent, Nym, SmtpAddress) end,
        fun message_handler/1).
 
 %% Exported: stop
@@ -30,26 +30,26 @@ stop(Pid) ->
 
 %% Exported: send_mail
 
-send_mail(Pid, RecipientName, PickedAsSource, Letter) ->
-    serv:cast(Pid, {send_mail, RecipientName, PickedAsSource, Letter}).
+send_mail(Pid, RecipientNym, PickedAsSource, Letter) ->
+    serv:cast(Pid, {send_mail, RecipientNym, PickedAsSource, Letter}).
 
 %%
 %% Server
 %%
 
-init(Parent, Name, SmtpAddress) ->
-    ?daemon_tag_log(system, "SMTP server for ~s has been started", [Name]),
-    {ok, #state{parent = Parent, name = Name, smtp_address = SmtpAddress}}.
+init(Parent, Nym, SmtpAddress) ->
+    ?daemon_tag_log(system, "SMTP server for ~s has been started", [Nym]),
+    {ok, #state{parent = Parent, nym = Nym, smtp_address = SmtpAddress}}.
 
 message_handler(#state{parent = Parent,
-                       name = Name,
+                       nym = Nym,
                        smtp_address = {SmtpIpAddress, SmtpPort},
                        smtp_password = SmtpPassword}) ->
     receive
         {call, From, stop} ->
             {stop, From, ok};
-        {cast, {send_mail, RecipientName, PickedAsSource, Letter}} ->
-            "" = swaks(Name, RecipientName, SmtpIpAddress, SmtpPort,
+        {cast, {send_mail, RecipientNym, PickedAsSource, Letter}} ->
+            "" = swaks(Nym, RecipientNym, SmtpIpAddress, SmtpPort,
                        SmtpPassword, PickedAsSource, Letter),
             noreply;
         {system, From, Request} ->

@@ -7,19 +7,19 @@
 
 new() ->
     ?MODULE == ets:new(?MODULE,
-                       [public, named_table, {keypos, #db_player.name},
+                       [public, named_table, {keypos, #db_player.nym},
                         {write_concurrency, true}]).
 
 %% Exported: lookup
 
-lookup(Name) ->
-    ets:lookup(?MODULE, Name).
+lookup(Nym) ->
+    ets:lookup(?MODULE, Nym).
 
 %% Exported: add
 
-add(Name, X, Y) ->
+add(Nym, X, Y) ->
     ets:insert(?MODULE,
-               #db_player{name = Name,
+               #db_player{nym = Nym,
                           x = X,
                           y = Y,
                           buffer_size = 0,
@@ -29,14 +29,14 @@ add(Name, X, Y) ->
 
 %% Exported: update
 
-update(#db_player{name = Name,
+update(#db_player{nym = Nym,
                   x = X,
                   y = Y,
                   buffer_size = BufferSize,
                   neighbours = Neighbours,
                   is_zombie = IsZombie,
                   pick_mode = PickMode}) ->
-    case lookup(Name) of
+    case lookup(Nym) of
         [DbPlayer] ->
             ets:insert(
               ?MODULE,

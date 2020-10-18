@@ -29,12 +29,12 @@
                      {is_forwarder,
                       {message_not_in_buffer |
                        message_in_buffer, message_id()}} |
-                     {is_source, {TargetName :: binary(), message_id()}} |
+                     {is_source, {TargetNym :: binary(), message_id()}} |
                      {is_target, message_id()}.
 
 -record(state,
         {parent :: pid(),
-         name :: binary(),
+         nym :: binary(),
          pki_password :: binary(),
          mail_serv_pid = not_set :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
@@ -64,17 +64,17 @@
 
 %% Exported: start_link
 
-start_link(Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+start_link(Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
            GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir,
+               init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir,
                     Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
                     Simulated)
        end,
        fun initial_message_handler/1).
 
-initial_message_handler(#state{name = Name,
+initial_message_handler(#state{nym = Nym,
                                pki_password = PkiPassword,
                                keys = {PublicKey, _SecretKey},
                                pki_mode = PkiMode} = State) ->
@@ -84,7 +84,7 @@ initial_message_handler(#state{name = Name,
                        {nodis_serv, NodisServPid},
                        {pki_serv, PkiServPid}]} ->
             {ok, NodisSubscription} = nodis_srv:subscribe(NodisServPid),
-            ok = publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
+            ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                     PublicKey),
             {swap_message_handler, fun message_handler/1,
              State#state{mail_serv_pid = MailServPid,
@@ -120,8 +120,8 @@ become_nothing(Pid) ->
 
 %% Exported: become_source
 
-become_source(Pid, TargetName, MessageId) ->
-    serv:cast(Pid, {become_source, TargetName, MessageId}).
+become_source(Pid, TargetNym, MessageId) ->
+    serv:cast(Pid, {become_source, TargetNym, MessageId}).
 
 %% Exported: become_target
 
@@ -156,8 +156,8 @@ pick_as_source(Pid) ->
 
 %% Exported: send_message
 
-send_message(Pid, MessageId, RecipientName, Letter) ->
-    serv:call(Pid, {send_message, MessageId, RecipientName, Letter}).
+send_message(Pid, MessageId, RecipientNym, Letter) ->
+    serv:call(Pid, {send_message, MessageId, RecipientNym, Letter}).
 
 %% Exported: add_dummy_messages
 
@@ -178,7 +178,7 @@ stop_generating_mail(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
     case player_buffer:new(BufferDir) of
@@ -190,9 +190,9 @@ init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                     LocationGenerator = not_set
             end,
             ?daemon_tag_log(system,
-                            "Player server for ~s has been started", [Name]),
+                            "Player server for ~s has been started", [Nym]),
             {ok, #state{parent = Parent,
-                        name = Name,
+                        nym = Nym,
                         pki_password = PkiPassword,
                         sync_address = SyncAddress,
                         temp_dir = TempDir,
@@ -209,7 +209,7 @@ init(Parent, Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
 
 message_handler(
   #state{parent = Parent,
-         name = Name,
+         nym = Nym,
          mail_serv_pid = MailServPid,
          maildrop_serv_pid = MaildropServPid,
          pki_serv_pid = PkiServPid,
@@ -244,7 +244,7 @@ message_handler(
           NewPickMode = {is_forwarder, {message_not_in_buffer, MessageId}},
           case Simulated of
               true ->
-                  true = player_db:update(#db_player{name = Name,
+                  true = player_db:update(#db_player{nym = Nym,
                                                      pick_mode = NewPickMode});
               false ->
                   true
@@ -253,17 +253,17 @@ message_handler(
       {cast, become_nothing} ->
           case Simulated of
               true ->
-                  true = player_db:update(#db_player{name = Name,
+                  true = player_db:update(#db_player{nym = Nym,
                                                      pick_mode = is_nothing});
               false ->
                   true
           end,
           {noreply, State#state{pick_mode = is_nothing}};
-      {cast, {become_source, TargetName, MessageId}} ->
-          NewPickMode = {is_source, {TargetName, MessageId}},
+      {cast, {become_source, TargetNym, MessageId}} ->
+          NewPickMode = {is_source, {TargetNym, MessageId}},
           case Simulated of
               true ->
-                  true = player_db:update(#db_player{name = Name,
+                  true = player_db:update(#db_player{nym = Nym,
                                                      pick_mode = NewPickMode});
               false ->
                   true
@@ -273,7 +273,7 @@ message_handler(
           NewPickMode = {is_target, MessageId},
           case Simulated of
               true ->
-                  true = player_db:update(#db_player{name = Name,
+                  true = player_db:update(#db_player{nym = Nym,
                                                      pick_mode = NewPickMode});
               false ->
                   true
@@ -287,7 +287,7 @@ message_handler(
                       true ->
                           true = player_db:update(
                                    #db_player{
-                                      name = Name,
+                                      nym = Nym,
                                       buffer_size = player_buffer:size(Buffer),
                                       pick_mode = NewPickMode});
                       false ->
@@ -303,7 +303,7 @@ message_handler(
         <<MessageId:64/unsigned-integer, _EncryptedData/binary>> = Message}} ->
           case target_message_id(PickMode) of
               MessageId ->
-                  ?dbg_log({forwarding_target_message, Name, MessageId});
+                  ?dbg_log({forwarding_target_message, Nym, MessageId});
               _ ->
                   silence
           end,
@@ -313,10 +313,10 @@ message_handler(
               true ->
                   true = player_db:update(
                            #db_player{
-                              name = Name,
+                              nym = Nym,
                               buffer_size = player_buffer:size(Buffer),
                               pick_mode = NewPickMode}),
-                  true = stats_db:message_buffered(Name);
+                  true = stats_db:message_buffered(Nym);
               false ->
                   true
           end,
@@ -327,8 +327,8 @@ message_handler(
           noreply;
       {cast, {got_message, MessageId, SenderNym, Signature,
               <<MessageId:64/unsigned-integer,
-                SenderNameSize:8,
-                SenderName:SenderNameSize/binary,
+                SenderNymSize:8,
+                SenderNym:SenderNymSize/binary,
                 Letter/binary>> = DecryptedData}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
@@ -346,12 +346,12 @@ message_handler(
                           ?daemon_tag_log(
                              system,
                              "~s received a verified message from ~s (~w)",
-                             [Name, SenderName, MessageId]);
+                             [Nym, SenderNym, MessageId]);
                       false ->
                           ?daemon_tag_log(
                              system,
                              "~s received an *unverified* message from ~s (~w)",
-                             [Name, SenderName, MessageId])
+                             [Nym, SenderNym, MessageId])
                   end,
                   %% FIXME: Feed the verified status into the maildrop in
                   %% some way. Most probably we should add a new mail header
@@ -363,15 +363,15 @@ message_handler(
                   case Simulated of
                       true ->
                           true = stats_db:message_received(
-                                   MessageId, SenderName, Name);
+                                   MessageId, SenderNym, Nym);
                       false ->
                           true
                   end,
                   case PickMode of
                       {is_target, MessageId} ->
-                          ?dbg_log({target_received_message, Name, MessageId}),
+                          ?dbg_log({target_received_message, Nym, MessageId}),
                           simulator_serv:target_received_message(
-                            Name, SenderName);
+                            Nym, SenderNym);
                       _ ->
                           ok
                   end,
@@ -380,11 +380,11 @@ message_handler(
               true ->
                   ?daemon_tag_log(
                      system, "~s received a duplicated message from ~s (~w)",
-                     [Name, SenderName, MessageId]),
+                     [Nym, SenderNym, MessageId]),
                   case Simulated of
                       true ->
                           true = stats_db:message_duplicate_received(
-                                   MessageId, SenderName, Name);
+                                   MessageId, SenderNym, Nym);
                       false ->
                           true
                   end,
@@ -392,15 +392,15 @@ message_handler(
           end;
       {cast, pick_as_source} ->
           {noreply, State#state{picked_as_source = true}};
-      {call, From, {send_message, MessageId, RecipientName, Letter}} ->
-          case read_public_key(PkiServPid, PkiMode, RecipientName) of
+      {call, From, {send_message, MessageId, RecipientNym, Letter}} ->
+          case read_public_key(PkiServPid, PkiMode, RecipientNym) of
               {ok, RecipientPublicKey} ->
-                  NameSize = size(Name),
+                  NymSize = size(Nym),
                   EncryptedData =
                       elgamal:uencrypt(
                         <<MessageId:64/unsigned-integer,
-                          NameSize:8,
-                          Name/binary,
+                          NymSize:8,
+                          Nym/binary,
                           Letter/binary>>,
                         RecipientPublicKey,
                         SecretKey),
@@ -411,11 +411,11 @@ message_handler(
                       true ->
                           true = player_db:update(
                                    #db_player{
-                                      name = Name,
+                                      nym = Nym,
                                       buffer_size = player_buffer:size(Buffer),
                                       pick_mode = PickMode}),
                           true = stats_db:message_created(
-                                   MessageId, Name, RecipientName);
+                                   MessageId, Nym, RecipientNym);
                       false ->
                           true
                   end,
@@ -424,18 +424,18 @@ message_handler(
                   {reply, From, {error, Reason}}
           end;
       {call, From, {add_dummy_messages, N}} ->
-          RecipientName = <<"p1">>,
+          RecipientNym = <<"p1">>,
           {ok, RecipientPublicKey} =
-              read_public_key(PkiServPid, PkiMode, RecipientName),
+              read_public_key(PkiServPid, PkiMode, RecipientNym),
           perform(fun() ->
                           MessageId = erlang:unique_integer([positive]),
-                          NameSize = size(Name),
+                          NymSize = size(Nym),
                           Letter = <<"foo\r\n\r\n">>,
                           EncryptedData =
                               elgamal:uencrypt(
                                 <<MessageId:64/unsigned-integer,
-                                  NameSize:8,
-                                  Name/binary,
+                                  NymSize:8,
+                                  Nym/binary,
                                   Letter/binary>>,
                                 RecipientPublicKey,
                                 SecretKey),
@@ -446,7 +446,7 @@ message_handler(
                           case Simulated of
                               true ->
                                   true = stats_db:message_created(
-                                           MessageId, Name, RecipientName);
+                                           MessageId, Nym, RecipientNym);
                               false ->
                                   true
                           end
@@ -455,7 +455,7 @@ message_handler(
               true ->
                   true = player_db:update(
                            #db_player{
-                              name = Name,
+                              nym = Nym,
                               buffer_size = player_buffer:size(Buffer),
                               pick_mode = PickMode});
               false ->
@@ -513,9 +513,9 @@ message_handler(
                       true ->
                           true = player_db:update(
                                    #db_player{
-                                      name = Name,
+                                      nym = Nym,
                                       neighbours =
-                                          get_player_names(NewNeighbours)});
+                                          get_player_nyms(NewNeighbours)});
                       false ->
                           true
                   end,
@@ -536,9 +536,9 @@ message_handler(
                       true ->
                           true = player_db:update(
                                    #db_player{
-                                      name = Name,
+                                      nym = Nym,
                                       neighbours =
-                                          get_player_names(NewNeighbours)});
+                                          get_player_nyms(NewNeighbours)});
                       false ->
                           ok
                   end,
@@ -568,10 +568,10 @@ message_handler(
       %% Below follows handling of internally generated messages
       %%
       generate_mail when not IsZombie andalso GenerateMail ->
-          {RecipientName, _RecipientPublicKey} =
-              simulator_serv:get_random_player(Name),
+          {RecipientNym, _RecipientPublicKey} =
+              simulator_serv:get_random_player(Nym),
           ok = mail_serv:send_mail(
-                 MailServPid, RecipientName, PickedAsSource, <<"FOO">>),
+                 MailServPid, RecipientNym, PickedAsSource, <<"FOO">>),
           erlang:send_after(?GENERATE_MAIL_TIME, self(), generate_mail),
           {noreply, State#state{picked_as_source = false}};
       generate_mail ->
@@ -585,7 +585,7 @@ message_handler(
                   case Simulated of
                       true ->
                           true = player_db:update(
-                                   #db_player{name = Name, is_zombie = true});
+                                   #db_player{nym = Nym, is_zombie = true});
                       false ->
                           true
                   end,
@@ -596,18 +596,18 @@ message_handler(
                           ?dbg_log({initial_location, NextX, NextY}),
                           case Simulated of
                               true ->
-                                  true = player_db:add(Name, NextX, NextY);
+                                  true = player_db:add(Nym, NextX, NextY);
                               false ->
                                   true
                           end;
                       true ->
                           ?dbg_log({location_updated,
-                                    Name, X, Y, NextX, NextY}),
+                                    Nym, X, Y, NextX, NextY}),
                           case Simulated of
                               true ->
                                   true = player_db:update(
                                            #db_player{
-                                              name = Name,
+                                              nym = Nym,
                                               x = NextX,
                                               y = NextY,
                                               buffer_size =
@@ -617,7 +617,7 @@ message_handler(
                                   true
                           end
                   end,
-                  ?dbg_log({will_check_location, Name,
+                  ?dbg_log({will_check_location, Nym,
                             NextTimestamp - Timestamp}),
                   NextUpdate = trunc((NextTimestamp - Timestamp) * 1000),
                   erlang:send_after(NextUpdate, self(),
@@ -683,8 +683,8 @@ calculate_pick_mode(Buffer, {is_forwarder, {_, MessageId}}) ->
 calculate_pick_mode(_Buffer, PickMode) ->
     PickMode.
 
-get_player_names(Neighbours) ->
-    simulator_serv:get_player_names(
+get_player_nyms(Neighbours) ->
+    simulator_serv:get_player_nyms(
       [SyncAddress || {SyncAddress, _Pid} <- Neighbours]).
 
 %% print_speed(_DegreesToMeters, _X, _Y, _MetersMoved, 0, _NextX, _NextY) ->
@@ -710,16 +710,16 @@ get_player_names(Neighbours) ->
 %% PKI access functions
 %%
 
-read_public_key(PkiServPid, local, Name) ->
-    case pki_serv:read(PkiServPid, Name) of
+read_public_key(PkiServPid, local, Nym) ->
+    case pki_serv:read(PkiServPid, Nym) of
         {ok, #pki_user{public_key = PublicKey}} ->
             {ok, PublicKey};
         {error, Reason} ->
             {error, Reason}
     end;
-read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
+read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
     case pki_network_client:read(
-           Name, #pki_network_client_options{pki_access = PkiAccess},
+           Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
             {ok, PublicKey};
@@ -727,8 +727,8 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Name) ->
             {error, Reason}
     end.
 
-publish_public_key(PkiServPid, local, Name, PkiPassword, PublicKey) ->
-    case pki_serv:read(PkiServPid, Name) of
+publish_public_key(PkiServPid, local, Nym, PkiPassword, PublicKey) ->
+    case pki_serv:read(PkiServPid, Nym) of
         {ok, #pki_user{public_key = PublicKey}} ->
             ?daemon_tag_log(system, "PKI server is in sync", []),
             ok;
@@ -740,16 +740,16 @@ publish_public_key(PkiServPid, local, Name, PkiPassword, PublicKey) ->
             ok;
         {error, no_such_user} ->
             ok = pki_serv:create(PkiServPid,
-                                 #pki_user{nym = Name,
+                                 #pki_user{nym = Nym,
                                            password = PkiPassword,
                                            public_key = PublicKey}),
             ?daemon_tag_log(system, "Created an entry in the PKI server", []),
             ok
     end;
-publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, PkiPassword,
+publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                    PublicKey) ->
     case pki_network_client:read(
-           Name, #pki_network_client_options{pki_access = PkiAccess},
+           Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
             ?daemon_tag_log(system, "PKI server is in sync", []),
@@ -769,12 +769,12 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, PkiPassword,
                        "Could not update the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
+                    publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                        PublicKey)
             end;
         {error, <<"No such user">>} ->
             case pki_network_client:create(
-                   #pki_user{nym = Name,
+                   #pki_user{nym = Nym,
                              password = PkiPassword,
                              public_key = PublicKey},
                    #pki_network_client_options{pki_access = PkiAccess},
@@ -789,7 +789,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, PkiPassword,
                        "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
+                    publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                        PublicKey)
             end;
         {error, Reason} ->
@@ -798,6 +798,6 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Name, PkiPassword,
                "Could not contact PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(PkiServPid, PkiMode, Name, PkiPassword,
+            publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                PublicKey)
     end.

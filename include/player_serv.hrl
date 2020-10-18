@@ -8,14 +8,14 @@
 -define(K, 10).
 
 -record(player,
-        {name :: binary(),
+        {nym :: binary(),
          player_serv_pid :: pid(),
          nodis_serv_pid :: pid(),
          sync_address :: {inet:ip4_address(), inet:port_number()},
          smtp_address :: {inet:ip4_address(), inet:port_number()}}).
 
 -record(db_player,
-        {name :: binary(),
+        {nym :: binary(),
          x = not_set :: number() | not_set,
          y = not_set :: number() | not_set,
          buffer_size = not_set :: integer() | not_set,
@@ -24,7 +24,7 @@
          pick_mode = not_set :: player_serv:pick_mode() | not_set}).
 
 -record(simulated_player_serv_config,
-        {name :: binary(),
+        {nym :: binary(),
          pki_password :: binary(),
          sync_address :: {inet:ip_address(), inet:port_number()},
          temp_dir :: binary(),

@@ -66,10 +66,10 @@ connect_now(PlayerServPid, Port, #player_sync_serv_options{
 
 %% Exported: start_link
 
-start_link(Name, {IpAddress, Port}, F, Keys) ->
+start_link(Nym, {IpAddress, Port}, F, Keys) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Name, Port,
+               init(Parent, Nym, Port,
                     #player_sync_serv_options{ip_address = IpAddress,
                                               f = F,
                                               keys = Keys})
@@ -85,7 +85,7 @@ stop(Pid) ->
 %% Server
 %%
 
-init(Parent, Name, Port,
+init(Parent, Nym, Port,
      #player_sync_serv_options{
         ip_address = IpAddress} = Options) ->
     Family = if tuple_size(IpAddress) =:= 4 -> [inet];
@@ -101,7 +101,7 @@ init(Parent, Name, Port,
         gen_tcp:listen(Port, LOptions),
     self() ! accepted,
     ?daemon_tag_log(system, "Player sync server starting for ~s on ~s:~w",
-                    [Name, inet:ntoa(IpAddress), Port]),
+                    [Nym, inet:ntoa(IpAddress), Port]),
     {ok, #state{parent = Parent,
                 options = Options,
                 listen_socket = ListenSocket,

@@ -55,10 +55,10 @@ attach_child(SourceId, TargetId, Children) ->
 init(normal) ->
     [Pin, PinSalt] =
         config:lookup_children([pin, 'pin-salt'], config:lookup([])),
-    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
+    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
      Maildrop, SmtpServer, Pop3Server] =
         config:lookup_children(
-          [username, 'pki-password', 'sync-address', 'temp-dir', 'buffer-dir',
+          [nym, 'pki-password', 'sync-address', 'temp-dir', 'buffer-dir',
            spiridon, maildrop, 'smtp-server', 'pop3-server'],
           config:lookup([player])),
     [F, EncodedPublicKey, EncryptedSecretKey] =
@@ -102,27 +102,27 @@ init(normal) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+                    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                      not_set, not_set, PkiMode, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Name, SyncAddress, F, Keys]}},
+                    [Nym, SyncAddress, F, Keys]}},
     MailServSpec =
         #{id => mail_serv,
-          start => {mail_serv, start_link, [Name, SmtpAddress]}},
+          start => {mail_serv, start_link, [Nym, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, false]}},
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
-                    [Name, SmtpPasswordDigest, TempDir, SmtpCertFilename,
+                    [Nym, SmtpPasswordDigest, TempDir, SmtpCertFilename,
                      SmtpAddress, false]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
-                    [Name, Pop3PasswordDigest, TempDir, Pop3CertFilename,
+                    [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
@@ -139,7 +139,7 @@ init(normal) ->
                                        NodisServSpec,
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
-        name = Name,
+        nym = Nym,
         pki_password = PkiPassword,
         sync_address = SyncAddress,
         temp_dir = TempDir,
@@ -160,27 +160,27 @@ init(#simulated_player_serv_config{
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Name, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+                    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                      GetLocationGenerator, DegreesToMeters, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Name, SyncAddress, F, Keys]}},
+                    [Nym, SyncAddress, F, Keys]}},
     MailServSpec =
         #{id => mail_serv,
-          start => {mail_serv, start_link, [Name, SmtpAddress]}},
+          start => {mail_serv, start_link, [Nym, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, true]}},
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
-                    [Name, SmtpPasswordDigest, TempDir, SmtpCertFilename,
+                    [Nym, SmtpPasswordDigest, TempDir, SmtpCertFilename,
                      SmtpAddress, true]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
-                    [Name, Pop3PasswordDigest, TempDir, Pop3CertFilename,
+                    [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,

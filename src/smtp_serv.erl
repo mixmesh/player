@@ -8,9 +8,9 @@
 -include_lib("mail/include/smtplib.hrl").
 
 -record(state,
-        {name :: binary(),
+        {nym :: binary(),
          password_digest :: binary(),
-         login_state = waiting_for_name :: waiting_for_name |
+         login_state = waiting_for_nym :: waiting_for_nym |
                                            {waiting_for_password, binary()},
          check_credentials :: function(),
          reverse_path = not_set :: binary() | not_set,
@@ -22,7 +22,7 @@
 
 %% Exported: start_link
 
-start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
+start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
            Simulated) ->
     PatchInitialServletState =
         fun(State) ->
@@ -38,7 +38,7 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
            greeting = <<"[127.0.0.1] ESMTP server ready">>,
            authenticate = yes,
            initial_servlet_state =
-               #state{name = Name,
+               #state{nym = Nym,
                       password_digest = PasswordDigest,
                       check_credentials = fun check_credentials/4,
                       temp_dir = TempDir,
@@ -58,11 +58,11 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_tag_log(system, "SMTP server starting for ~s on ~s:~w",
-                    [Name, inet:ntoa(IpAddress), Port]),
+                    [Nym, inet:ntoa(IpAddress), Port]),
     smtplib:start_link(IpAddress, Port, Options).
 
-check_credentials(#state{name = Name, password_digest = PasswordDigest},
-                  _Autczid, Name, Password) ->
+check_credentials(#state{nym = Nym, password_digest = PasswordDigest},
+                  _Autczid, Nym, Password) ->
     player_crypto:check_digested_password(Password, PasswordDigest);
 check_credentials(_State, _Autczid, _Authcid, _Password) ->
     false.
@@ -149,7 +149,7 @@ auth(#channel{
             end;
         {ok, <<"LOGIN">>, []} ->
             NewServletState =
-                ServletState#state{login_state = waiting_for_name},
+                ServletState#state{login_state = waiting_for_nym},
             #response{
                status = 334,
                info = <<"VXNlcm5hbWU6">>,
@@ -232,30 +232,30 @@ data(#channel{
                     #response{status = 554, info = <<"no valid recipients">>};
                 #state{forward_path = ForwardPath} ->
                     MessageId = erlang:unique_integer([positive]),
-                    TargetName =
+                    TargetNym =
                         re:replace(ForwardPath, <<"@.*">>, <<"">>,
                                    [{return, binary}]),
 %                    case lists:keysearch(<<"X-OBSCRETE-TRACE">>, 1, Headers) of
 %                        {value, {_, <<"yes">>}} ->
 %                            ok = simulator_serv:elect_source_and_target(
-%                                   MessageId, ServletState#state.name,
-%                                   TargetName);
+%                                   MessageId, ServletState#state.nym,
+%                                   TargetNym);
 %                        _ ->
 %                            ok
 %                    end,
                     case Simulated of
                         true ->
                             ok = simulator_serv:elect_source_and_target(
-                                   MessageId, ServletState#state.name, TargetName);
+                                   MessageId, ServletState#state.nym, TargetNym);
                         false ->
                             ok
                     end,
-                    ?dbg_log({send_mail, ServletState#state.name, TargetName,
+                    ?dbg_log({send_mail, ServletState#state.nym, TargetNym,
                               Filename}),
                     %% FIXME: I need to rewrite player_server to work on files
                     {ok, Binary} = file:read_file(Filename),
                     case player_serv:send_message(
-                           PlayerServPid, MessageId, TargetName, Binary) of
+                           PlayerServPid, MessageId, TargetNym, Binary) of
                         ok ->
                             #response{channel = Channel#channel{mode = helo}};
                         {error, Reason} ->
@@ -304,7 +304,7 @@ any(#channel{
     ?dbg_log({any, Channel, Line}),
     case {Mode, LoginState} of
         %% https://www.samlogic.net/articles/smtp-commands-reference-auth.htm
-        {auth, waiting_for_name} ->
+        {auth, waiting_for_nym} ->
             Autczid = base64:decode(string:chomp(Line)),
             NewServletState =
                 ServletState#state{

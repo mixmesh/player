@@ -9,16 +9,16 @@
 -include_lib("mail/include/maildrop_serv.hrl").
 
 -record(state,
-        {name :: binary(),
+        {nym :: binary(),
          password_digest :: binary(),
-         login_name = not_set :: binary() | not_set,
+         login_nym = not_set :: binary() | not_set,
          check_credentials :: function(),
          maildrop_serv_pid = not_set :: pid() | not_set,
          temp_dir :: binary()}).
 
 %% Exported: start_link
 
-start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
+start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
@@ -32,7 +32,7 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
            timeout = 10 * 60 * 1000,
            greeting = <<"[127.0.0.1] POP3 server ready">>,
            initial_servlet_state =
-               #state{name = Name,
+               #state{nym = Nym,
                       password_digest = PasswordDigest,
                       check_credentials = fun check_credentials/3,
                       temp_dir = TempDir},
@@ -50,13 +50,13 @@ start_link(Name, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_tag_log(system, "POP3 server starting for ~s on ~s:~w",
-                    [Name, inet:ntoa(IpAddress), Port]),
+                    [Nym, inet:ntoa(IpAddress), Port]),
     pop3lib:start_link(IpAddress, Port, Options).
 
-check_credentials(#state{name = Name, password_digest = PasswordDigest}, Name,
+check_credentials(#state{nym = Nym, password_digest = PasswordDigest}, Nym,
                   Password) ->
     player_crypto:check_digested_password(Password, PasswordDigest);
-check_credentials(_State, _Name, _Password) ->
+check_credentials(_State, _Nym, _Password) ->
     false.
 
 %% https://tools.ietf.org/html/rfc1939#page-6
@@ -289,13 +289,13 @@ uidl(#channel{servlet_state =
 user(#channel{servlet_state = State} = Channel, Args) ->
     ?dbg_log({user, Channel, Args}),
     case Args of
-        [LoginName] ->
+        [LoginNym] ->
             #response{
                info = <<"proceed with password">>,
                channel = Channel#channel{
                            mode = password,
                            servlet_state =
-                               State#state{login_name = LoginName}}};
+                               State#state{login_nym = LoginNym}}};
         _ ->
             #response{status = err, info = <<"invalid argument(s)">>}
     end.
@@ -303,13 +303,13 @@ user(#channel{servlet_state = State} = Channel, Args) ->
 %% https://tools.ietf.org/html/rfc1939#page-14
 pass(#channel{
         servlet_state =
-            #state{login_name = LoginName,
+            #state{login_nym = LoginNym,
                    maildrop_serv_pid = MaildropServPid} = State} = Channel,
      Args) ->
     ?dbg_log({pass, Channel, Args}),
     case Args of
         [LoginPassword] ->
-            case check_credentials(State, LoginName, LoginPassword) of
+            case check_credentials(State, LoginNym, LoginPassword) of
                 true ->
                     case maildrop_serv:lock(MaildropServPid)  of
                         ok ->
@@ -326,7 +326,7 @@ pass(#channel{
                                    Channel#channel{
                                      mode = authorization,
                                      servlet_state =
-                                         State#state{login_name = not_set}}}
+                                         State#state{login_nym = not_set}}}
                     end;
                 false ->
                     #response{
@@ -335,7 +335,7 @@ pass(#channel{
                        channel =
                            Channel#channel{
                              mode = authorization,
-                             servlet_state = State#state{login_name = not_set}}}
+                             servlet_state = State#state{login_nym = not_set}}}
             end;
         _ ->
             #response{status = err,
@@ -343,7 +343,7 @@ pass(#channel{
                        channel = Channel#channel{
                                    mode = authorization,
                                    servlet_state =
-                                       State#state{login_name = not_set}}}
+                                       State#state{login_nym = not_set}}}
     end.
 
 %% https://tools.ietf.org/html/rfc1939#page-14

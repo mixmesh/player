@@ -11,7 +11,7 @@ get() ->
            name = bool,
            typical = false,
            reloadable = false}},
-       {username,
+       {nym,
         #json_type{
            name = string,
            typical = <<"johndoe">>,
