@@ -156,8 +156,8 @@ pick_as_source(Pid) ->
 
 %% Exported: send_message
 
-send_message(Pid, MessageId, RecipientNym, Letter) ->
-    serv:call(Pid, {send_message, MessageId, RecipientNym, Letter}).
+send_message(Pid, MessageId, RecipientNym, Payload) ->
+    serv:call(Pid, {send_message, MessageId, RecipientNym, Payload}).
 
 %% Exported: add_dummy_messages
 
@@ -327,13 +327,11 @@ message_handler(
           noreply;
       {cast, {got_message, MessageId, SenderNym, Signature,
               <<MessageId:64/unsigned-integer,
-                SenderNymSize:8,
-                SenderNym:SenderNymSize/binary,
-                Letter/binary>> = DecryptedData}} ->
+                Payload/binary>> = DecryptedData}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
                   TempFilename = mail_util:mktemp(TempDir),
-                  ok = file:write_file(TempFilename, Letter),
+                  ok = file:write_file(TempFilename, Payload),
                   case read_public_key(PkiServPid, PkiMode, SenderNym) of
                       {ok, SenderPublicKey} ->
                           Verified = elgamal:verify(Signature, DecryptedData,
@@ -392,16 +390,12 @@ message_handler(
           end;
       {cast, pick_as_source} ->
           {noreply, State#state{picked_as_source = true}};
-      {call, From, {send_message, MessageId, RecipientNym, Letter}} ->
+      {call, From, {send_message, MessageId, RecipientNym, Payload}} ->
           case read_public_key(PkiServPid, PkiMode, RecipientNym) of
               {ok, RecipientPublicKey} ->
-                  NymSize = size(Nym),
                   EncryptedData =
                       elgamal:uencrypt(
-                        <<MessageId:64/unsigned-integer,
-                          NymSize:8,
-                          Nym/binary,
-                          Letter/binary>>,
+                        <<MessageId:64/unsigned-integer, Payload/binary>>,
                         RecipientPublicKey,
                         SecretKey),
                   Message = <<MessageId:64/unsigned-integer,
@@ -429,14 +423,11 @@ message_handler(
               read_public_key(PkiServPid, PkiMode, RecipientNym),
           perform(fun() ->
                           MessageId = erlang:unique_integer([positive]),
-                          NymSize = size(Nym),
-                          Letter = <<"foo\r\n\r\n">>,
+                          Payload = <<"foo\r\n\r\n">>,
                           EncryptedData =
                               elgamal:uencrypt(
                                 <<MessageId:64/unsigned-integer,
-                                  NymSize:8,
-                                  Nym/binary,
-                                  Letter/binary>>,
+                                  Payload/binary>>,
                                 RecipientPublicKey,
                                 SecretKey),
                           Message =
@@ -650,9 +641,6 @@ perform(_Do, 0) ->
 perform(Do, N) ->
     Do(),
     perform(Do, N - 1).
-
-%%extract_mail_body(Letter) ->
-%%  string:trim(string:find(Letter, <<"\r\n\r\n">>)).
 
 target_message_id(is_nothing) ->
     false;

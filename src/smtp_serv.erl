@@ -253,9 +253,9 @@ data(#channel{
                     ?dbg_log({send_mail, ServletState#state.nym, TargetNym,
                               Filename}),
                     %% FIXME: I need to rewrite player_server to work on files
-                    {ok, Binary} = file:read_file(Filename),
+                    {ok, Payload} = file:read_file(Filename),
                     case player_serv:send_message(
-                           PlayerServPid, MessageId, TargetNym, Binary) of
+                           PlayerServPid, MessageId, TargetNym, Payload) of
                         ok ->
                             #response{channel = Channel#channel{mode = helo}};
                         {error, Reason} ->

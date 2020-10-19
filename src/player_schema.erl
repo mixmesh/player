@@ -105,7 +105,7 @@ get() ->
         [{mode,
           #json_type{
              name = atom,
-             info = "One of global or local",
+             info = "global or local",
              typical = local,
              convert =
                  fun(global) -> global;
