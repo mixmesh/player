@@ -189,6 +189,7 @@ init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                 false ->
                     LocationGenerator = not_set
             end,
+            ok = obscrete_config_serv:subscribe(),
             ?daemon_tag_log(system,
                             "Player server for ~s has been started", [Nym]),
             {ok, #state{parent = Parent,
@@ -234,6 +235,9 @@ message_handler(
          simulated = Simulated,
          nodis_subscription = NodisSubscription} = State) ->
   receive
+      config_updated ->
+          ?daemon_tag_log(system, "Player noticed a config change", []),
+          noreply;
       {call, From, stop} ->
           {stop, From, ok};
       {cast, pause} ->
