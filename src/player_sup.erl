@@ -64,7 +64,7 @@ init(normal) ->
     [F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
-    SharedKey = player_crypto:pin_to_key(Pin, PinSalt),
+    SharedKey = player_crypto:pin_to_shared_key(Pin, PinSalt),
     {ok, DecryptedSecretKey} =
         player_crypto:decrypt_secret_key(SharedKey, EncryptedSecretKey),
     SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
