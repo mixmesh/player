@@ -12,7 +12,7 @@
 -export([stop_generating_mail/1]).
 -export_type([message_id/0, pick_mode/0]).
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 -include_lib("player/include/player_serv.hrl").
 -include_lib("player/include/player_sync_serv.hrl").
@@ -190,8 +190,8 @@ init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                     LocationGenerator = not_set
             end,
             ok = obscrete_config_serv:subscribe(),
-            ?daemon_tag_log(system,
-                            "Player server for ~s has been started", [Nym]),
+            ?daemon_log_tag_fmt(
+               system, "Player server for ~s has been started", [Nym]),
             {ok, #state{parent = Parent,
                         nym = Nym,
                         pki_password = PkiPassword,
@@ -236,7 +236,7 @@ message_handler(
          nodis_subscription = NodisSubscription} = State) ->
   receive
       config_updated ->
-          ?daemon_tag_log(system, "Player noticed a config change", []),
+          ?daemon_log_tag_fmt(system, "Player noticed a config change", []),
           noreply;
       {call, From, stop} ->
           {stop, From, ok};
@@ -345,12 +345,12 @@ message_handler(
                   end,
                   case Verified of
                       true ->
-                          ?daemon_tag_log(
+                          ?daemon_log_tag_fmt(
                              system,
                              "~s received a verified message from ~s (~w)",
                              [Nym, SenderNym, MessageId]);
                       false ->
-                          ?daemon_tag_log(
+                          ?daemon_log_tag_fmt(
                              system,
                              "~s received an *unverified* message from ~s (~w)",
                              [Nym, SenderNym, MessageId])
@@ -380,7 +380,7 @@ message_handler(
                   {noreply, State#state{received_messages =
                                             [MessageId, ReceivedMessages]}};
               true ->
-                  ?daemon_tag_log(
+                  ?daemon_log_tag_fmt(
                      system, "~s received a duplicated message from ~s (~w)",
                      [Nym, SenderNym, MessageId]),
                   case Simulated of
@@ -471,7 +471,7 @@ message_handler(
       %%
       {nodis, NodisSubscription, {up, Addr}} ->
 	  NAddress = {NIp, NPort} = nodis_address(Addr, SyncAddress),
-	  ?dbg_tag_log(nodis, {up, NAddress}),
+	  ?dbg_log_tag(nodis, {up, NAddress}),
           case lists:keysearch(NAddress, 1, Neighbours) of
               {value, {_, Pid}} when is_pid(Pid) ->
                   noreply;
@@ -518,7 +518,7 @@ message_handler(
           end;
       {nodis, NodisSubscription, {down,Addr}} ->
 	  NAddress = nodis_address(Addr, SyncAddress),
-          ?dbg_tag_log(nodis, {down, NAddress}),
+          ?dbg_log_tag(nodis, {down, NAddress}),
           case lists:keytake(NAddress, 1, Neighbours) of
 	      {value,{_, Pid},NewNeighbours} ->
                   if
@@ -543,7 +543,7 @@ message_handler(
           end;
       {nodis, NodisSubscription, {missed, Addr}} ->
 	  NAddress = nodis_address(Addr, SyncAddress),
-          ?dbg_tag_log(nodis, {missed, NAddress}),
+          ?dbg_log_tag(nodis, {missed, NAddress}),
           noreply;
       {'EXIT', Parent, Reason} ->
           exit(Reason);
@@ -722,20 +722,21 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
 publish_public_key(PkiServPid, local, Nym, PkiPassword, PublicKey) ->
     case pki_serv:read(PkiServPid, Nym) of
         {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_tag_log(system, "PKI server is in sync", []),
+            ?daemon_log_tag_fmt(system, "PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             ok = pki_serv:update(PkiServPid,
                                  PkiUser#pki_user{password = PkiPassword,
                                                   public_key = PublicKey}),
-            ?daemon_tag_log(system, "Updated the PKI server", []),
+            ?daemon_log_tag_fmt(system, "Updated the PKI server", []),
             ok;
         {error, no_such_user} ->
             ok = pki_serv:create(PkiServPid,
                                  #pki_user{nym = Nym,
                                            password = PkiPassword,
                                            public_key = PublicKey}),
-            ?daemon_tag_log(system, "Created an entry in the PKI server", []),
+            ?daemon_log_tag_fmt(
+               system, "Created an entry in the PKI server", []),
             ok
     end;
 publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
@@ -744,7 +745,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
            Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_tag_log(system, "PKI server is in sync", []),
+            ?daemon_log_tag_fmt(system, "PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             case pki_network_client:update(
@@ -753,10 +754,10 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                    #pki_network_client_options{pki_access = PkiAccess},
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
-                    ?daemon_tag_log(system, "Updated the PKI server", []),
+                    ?daemon_log_tag_fmt(system, "Updated the PKI server", []),
                     ok;
                 {error, Reason} ->
-                    ?daemon_tag_log(
+                    ?daemon_log_tag_fmt(
                        system,
                        "Could not update the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
@@ -772,11 +773,11 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                    #pki_network_client_options{pki_access = PkiAccess},
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
-                    ?daemon_tag_log(
+                    ?daemon_log_tag_fmt(
                        system, "Created an entry in the PKI server", []),
                     ok;
                 {error, Reason} ->
-                    ?daemon_tag_log(
+                    ?daemon_log_tag_fmt(
                        system,
                        "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
@@ -785,7 +786,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                                        PublicKey)
             end;
         {error, Reason} ->
-            ?daemon_tag_log(
+            ?daemon_log_tag_fmt(
                system,
                "Could not contact PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),

@@ -2,7 +2,7 @@
 -export([connect/3]).
 -export([start_link/4, stop/1]).
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 -include_lib("player/include/player_buffer.hrl").
 -include_lib("player/include/player_sync_serv.hrl").
@@ -100,8 +100,9 @@ init(Parent, Nym, Port,
     {ok, ListenSocket} =
         gen_tcp:listen(Port, LOptions),
     self() ! accepted,
-    ?daemon_tag_log(system, "Player sync server starting for ~s on ~s:~w",
-                    [Nym, inet:ntoa(IpAddress), Port]),
+    ?daemon_log_tag_fmt(
+       system, "Player sync server starting for ~s on ~s:~w",
+       [Nym, inet:ntoa(IpAddress), Port]),
     {ok, #state{parent = Parent,
                 options = Options,
                 listen_socket = ListenSocket,

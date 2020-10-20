@@ -3,7 +3,7 @@
 
 %% DEBUG: mpop --debug --host=127.0.0.1 --port=29900 --deliver=mbox,fnutt --keep=on --auth=user --user=alice --tls=on --tls-starttls=off --tls-certcheck=off --passwordeval='echo "baz"'
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("mail/include/pop3lib.hrl").
 -include_lib("mail/include/maildrop_serv.hrl").
@@ -49,8 +49,8 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
                        #servlet{command = capa, handler = fun capa/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
-    ?daemon_tag_log(system, "POP3 server starting for ~s on ~s:~w",
-                    [Nym, inet:ntoa(IpAddress), Port]),
+    ?daemon_log_tag_fmt(system, "POP3 server starting for ~s on ~s:~w",
+                        [Nym, inet:ntoa(IpAddress), Port]),
     pop3lib:start_link(IpAddress, Port, Options).
 
 check_credentials(#state{nym = Nym, password_digest = PasswordDigest}, Nym,

@@ -6,7 +6,7 @@
 -export([foldl/3]).
 -export_type([buffer_handle/0]).
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("player/include/player_buffer.hrl").
 

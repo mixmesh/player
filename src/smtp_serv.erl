@@ -3,7 +3,7 @@
 
 %% DEBUG: swaks --from alice@obscrete.net --to alice@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --tls-on-connect --auth-password baz --body "FOO"
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("mail/include/smtplib.hrl").
 
@@ -57,8 +57,8 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
                        #servlet{command = any, handler = fun any/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
-    ?daemon_tag_log(system, "SMTP server starting for ~s on ~s:~w",
-                    [Nym, inet:ntoa(IpAddress), Port]),
+    ?daemon_log_tag_fmt(system, "SMTP server starting for ~s on ~s:~w",
+                        [Nym, inet:ntoa(IpAddress), Port]),
     smtplib:start_link(IpAddress, Port, Options).
 
 check_credentials(#state{nym = Nym, password_digest = PasswordDigest},

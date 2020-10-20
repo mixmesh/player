@@ -7,7 +7,7 @@
 %% NOTE: This server requires
 %%       http://www.jetmore.org/john/code/swaks/ to be installed.
 
--include_lib("apptools/include/log.hrl").
+-include_lib("obscrete/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 
 -record(state,
@@ -38,7 +38,7 @@ send_mail(Pid, RecipientNym, PickedAsSource, Letter) ->
 %%
 
 init(Parent, Nym, SmtpAddress) ->
-    ?daemon_tag_log(system, "SMTP server for ~s has been started", [Nym]),
+    ?daemon_log_tag_fmt(system, "SMTP server for ~s has been started", [Nym]),
     {ok, #state{parent = Parent, nym = Nym, smtp_address = SmtpAddress}}.
 
 message_handler(#state{parent = Parent,
