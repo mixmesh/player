@@ -189,7 +189,7 @@ init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                 false ->
                     LocationGenerator = not_set
             end,
-            ok = obscrete_config_serv:subscribe(),
+            ok = config_serv:subscribe(),
             ?daemon_log_tag_fmt(
                system, "Player server for ~s has been started", [Nym]),
             {ok, #state{parent = Parent,
