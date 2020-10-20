@@ -12,7 +12,7 @@
 -export([stop_generating_mail/1]).
 -export_type([message_id/0, pick_mode/0]).
 
--include_lib("obscrete/include/log.hrl").
+-include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 -include_lib("player/include/player_serv.hrl").
 -include_lib("player/include/player_sync_serv.hrl").

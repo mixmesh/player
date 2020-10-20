@@ -2,7 +2,7 @@
 -export([connect/3]).
 -export([start_link/4, stop/1]).
 
--include_lib("obscrete/include/log.hrl").
+-include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 -include_lib("player/include/player_buffer.hrl").
 -include_lib("player/include/player_sync_serv.hrl").

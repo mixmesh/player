@@ -7,7 +7,7 @@
 %% NOTE: This server requires
 %%       http://www.jetmore.org/john/code/swaks/ to be installed.
 
--include_lib("obscrete/include/log.hrl").
+-include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
 
 -record(state,
