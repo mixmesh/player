@@ -54,7 +54,7 @@ attach_child(SourceId, TargetId, Children) ->
 
 init(normal) ->
     [Pin, PinSalt] =
-        config:lookup_children([pin, 'pin-salt'], config:lookup([])),
+        config:lookup_children([pin, 'pin-salt'], config:lookup([system])),
     [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
      Maildrop, SmtpServer, Pop3Server] =
         config:lookup_children(
