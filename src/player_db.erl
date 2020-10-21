@@ -1,7 +1,7 @@
 -module(player_db).
 -export([new/0, lookup/1, add/3, update/1, foldl/2]).
 
--include_lib("player/include/player_serv.hrl").
+-include("../include/player_serv.hrl").
 
 %% Exported: new
 

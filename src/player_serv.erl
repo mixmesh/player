@@ -14,11 +14,11 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
--include_lib("player/include/player_serv.hrl").
--include_lib("player/include/player_sync_serv.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 -include_lib("pki/include/pki_serv.hrl").
 -include_lib("pki/include/pki_network_client.hrl").
+-include("../include/player_serv.hrl").
+-include("../include/player_sync_serv.hrl").
 
 -define(GENERATE_MAIL_TIME, (60 * 1000)).
 -define(PKI_PUSHBACK_TIME, 10000).

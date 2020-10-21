@@ -8,7 +8,7 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
--include_lib("player/include/player_buffer.hrl").
+-include("../include/player_buffer.hrl").
 
 -define(LARGEST_POSITIVE_INTEGER, trunc(math:pow(2, 28) / 2)).
 

@@ -4,7 +4,7 @@
 -export([attach_child/3]).
 -export([init/1]). %% Used by supervisor:start_link/2
 
--include_lib("player/include/player_serv.hrl").
+-include("../include/player_serv.hrl").
 
 %% Exported: start_link
 

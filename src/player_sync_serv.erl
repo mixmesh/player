@@ -4,8 +4,8 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
--include_lib("player/include/player_buffer.hrl").
--include_lib("player/include/player_sync_serv.hrl").
+-include("../include/player_buffer.hrl").
+-include("../include/player_sync_serv.hrl").
 
 %% Debug: length([erlang:port_info(P)||P <- erlang:ports()]).
 
