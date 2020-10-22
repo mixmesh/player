@@ -126,7 +126,7 @@ init(normal) ->
                      Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link, [#{}]}},
+          start => {nodis_serv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
@@ -184,7 +184,7 @@ init(#simulated_player_serv_config{
                      Pop3Address]}},
     NodisServSpec =
         #{id => nodis_serv,
-          start => {nodis_srv, start_link,
+          start => {nodis_serv, start_link,
                     [#{simulation => true,
                        ping_interval => 500,
                        max_ping_lost => 2}]}},

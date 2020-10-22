@@ -83,7 +83,7 @@ initial_message_handler(#state{nym = Nym,
                        {maildrop_serv, MaildropServPid},
                        {nodis_serv, NodisServPid},
                        {pki_serv, PkiServPid}]} ->
-            {ok, NodisSubscription} = nodis_srv:subscribe(NodisServPid),
+            {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
             ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                     PublicKey),
             {swap_message_handler, fun message_handler/1,
