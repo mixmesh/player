@@ -331,11 +331,9 @@ message_handler(
           noreply;
       {cast, {got_message, MessageId, SenderNym, Signature,
               <<MessageId:64/unsigned-integer,
-                Payload/binary>> = DecryptedData}} ->
+                Mail/binary>> = DecryptedData}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
-                  TempFilename = mail_util:mktemp(TempDir),
-                  ok = file:write_file(TempFilename, Payload),
                   case read_public_key(PkiServPid, PkiMode, SenderNym) of
                       {ok, SenderPublicKey} ->
                           Verified = elgamal:verify(Signature, DecryptedData,
@@ -343,23 +341,33 @@ message_handler(
                       {error, _Reason} ->
                           Verified = false
                   end,
+                  TempFilename = mail_util:mktemp(TempDir),
                   case Verified of
                       true ->
                           ?daemon_log_tag_fmt(
                              system,
                              "~s received a verified message from ~s (~w)",
-                             [Nym, SenderNym, MessageId]);
+                             [Nym, SenderNym, MessageId]),
+                          Footer = <<"\n\nNOTE: This mail is verified">>,
+                          MailWithFooter =
+                              mail_util:inject_footer(Mail, Footer),
+                          ok = file:write_file(TempFilename, MailWithFooter);
                       false ->
                           ?daemon_log_tag_fmt(
                              system,
                              "~s received an *unverified* message from ~s (~w)",
-                             [Nym, SenderNym, MessageId])
+                             [Nym, SenderNym, MessageId]),
+                          MailWithExtraHeaders =
+                              mail_util:inject_headers(
+                                Mail, [{<<"MT-Priority">>, <<"9">>},
+                                       {<<"X-Priority">>, <<"1">>}]),
+                          Footer =
+                              <<"\n\nWARNING: This mail is *not* verified">>,
+                          MailWithFooter =
+                              mail_util:inject_footer(
+                                MailWithExtraHeaders, Footer),
+                          ok = file:write_file(TempFilename, MailWithFooter)
                   end,
-                  %% FIXME: Feed the verified status into the maildrop in
-                  %% some way. Most probably we should add a new mail header
-                  %% to the incoming mail before we write it to the maildrop.
-                  %% I have not found any standard mail header for this
-                  %% purpose. More investigation is needed.
                   {ok, _} = maildrop_serv:write(MaildropServPid, TempFilename),
                   ok = file:delete(TempFilename),
                   case Simulated of
@@ -394,12 +402,12 @@ message_handler(
           end;
       {cast, pick_as_source} ->
           {noreply, State#state{picked_as_source = true}};
-      {call, From, {send_message, MessageId, RecipientNym, Payload}} ->
+      {call, From, {send_message, MessageId, RecipientNym, Mail}} ->
           case read_public_key(PkiServPid, PkiMode, RecipientNym) of
               {ok, RecipientPublicKey} ->
                   EncryptedData =
                       elgamal:uencrypt(
-                        <<MessageId:64/unsigned-integer, Payload/binary>>,
+                        <<MessageId:64/unsigned-integer, Mail/binary>>,
                         RecipientPublicKey,
                         SecretKey),
                   Message = <<MessageId:64/unsigned-integer,
@@ -427,11 +435,11 @@ message_handler(
               read_public_key(PkiServPid, PkiMode, RecipientNym),
           perform(fun() ->
                           MessageId = erlang:unique_integer([positive]),
-                          Payload = <<"foo\r\n\r\n">>,
+                          Mail = <<"foo\r\n\r\n">>,
                           EncryptedData =
                               elgamal:uencrypt(
                                 <<MessageId:64/unsigned-integer,
-                                  Payload/binary>>,
+                                  Mail/binary>>,
                                 RecipientPublicKey,
                                 SecretKey),
                           Message =
