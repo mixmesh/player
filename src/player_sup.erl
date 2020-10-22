@@ -17,9 +17,13 @@ start_link(Config) ->
     case supervisor:start_link(?MODULE, Config) of
         {ok, Pid} ->
             Children = supervisor:which_children(Pid),
-            ok = attach_child(player_serv,
-                              [mail_serv, maildrop_serv, nodis_serv, pki_serv],
-                              Children),
+	    ChildList = 
+		if Config =:= normal ->
+			[mail_serv, maildrop_serv, pki_serv];
+		   true  ->
+			[mail_serv, maildrop_serv, nodis_serv, pki_serv]
+		end,
+            ok = attach_child(player_serv, ChildList, Children),
             ok = attach_child(player_sync_serv, player_serv, Children),
             ok = attach_child(smtp_serv, player_serv, Children),
             ok = attach_child(pop3_serv, maildrop_serv, Children),
@@ -124,9 +128,10 @@ init(normal) ->
           start => {pop3_serv, start_link,
                     [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
-    NodisServSpec =
-        #{id => nodis_serv,
-          start => {nodis_serv, start_link, [#{}]}},
+%% now always start one nodis_serv (but may be a dummy if sumulation)
+%%    NodisServSpec =
+%%        #{id => nodis_serv,
+%%          start => {nodis_serv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
@@ -136,7 +141,7 @@ init(normal) ->
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,
-                                       NodisServSpec,
+                                       %% NodisServSpec,
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
         nym = Nym,
@@ -186,8 +191,8 @@ init(#simulated_player_serv_config{
         #{id => nodis_serv,
           start => {nodis_serv, start_link,
                     [#{simulation => true,
-                       ping_interval => 500,
-                       max_ping_lost => 2}]}},
+                       'ping-interval' => 500,
+                       'max-ping-lost' => 2}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link,

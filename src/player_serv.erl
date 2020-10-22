@@ -90,6 +90,19 @@ initial_message_handler(#state{nym = Nym,
              State#state{mail_serv_pid = MailServPid,
                          maildrop_serv_pid = MaildropServPid,
                          pki_serv_pid = PkiServPid,
+                         nodis_subscription = NodisSubscription}};
+
+        {sibling_pid, [{mail_serv, MailServPid},
+                       {maildrop_serv, MaildropServPid},
+                       {pki_serv, PkiServPid}]} ->
+	    NodisServPid = whereis(nodis_serv),
+            {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
+            ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
+                                    PublicKey),
+            {swap_message_handler, fun message_handler/1,
+             State#state{mail_serv_pid = MailServPid,
+                         maildrop_serv_pid = MaildropServPid,
+                         pki_serv_pid = PkiServPid,
                          nodis_subscription = NodisSubscription}}
     end.
 
