@@ -183,6 +183,22 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
               Socket, Request, 200, "OK",
               jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
               [{content_type, "application/json"}]);
+        ["key", Nym] ->
+            [PkiServPid] = get_worker_pids([pki_serv], Options),
+            case pki_serv:read(PkiServPid, Nym) of
+                {ok, #pki_user{nym = Nym, public_key = PublicKey}} ->
+                    JsonTerm =
+                        [{<<"nym">>, Nym},
+                         {<<"public-key">>,
+                          base64:encode(
+                            elgamal:public_key_to_binary(PublicKey))}],
+                    rester_http_server:response_r(
+                      Socket, Request, 200, "OK",
+                      jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
+                      [{content_type, "application/json"}]);
+                {error, no_such_user} ->
+                    response(Socket, Request, {error, not_found})
+            end;
         _ ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    response(Socket, Request, {error, not_found})
