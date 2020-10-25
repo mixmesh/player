@@ -110,7 +110,10 @@ init(Parent, Nym, Port,
 
 initial_message_handler(State) ->
     receive
-        {sibling_pid, player_serv, PlayerServPid} ->
+        {neighbour_workers, NeighbourWorkers} ->
+            [PlayerServPid] =
+                supervisor_helper:get_selected_worker_pids(
+                  [player_serv], NeighbourWorkers),
             {swap_message_handler, fun message_handler/1,
              State#state{player_serv_pid = PlayerServPid}}
     end.

@@ -1,7 +1,6 @@
 -module(player_sup).
 -behaviour(supervisor).
 -export([start_link/0, start_link/1]).
--export([attach_child/3]).
 -export([init/1]). %% Used by supervisor:start_link/2
 
 -include("../include/player_serv.hrl").
@@ -15,43 +14,19 @@ start_link() ->
 
 start_link(Config) ->
     case supervisor:start_link(?MODULE, Config) of
-        {ok, Pid} ->
-            Children = supervisor:which_children(Pid),
-	    ChildList = 
-		if Config =:= normal ->
-			[mail_serv, maildrop_serv, pki_serv];
-		   true  ->
-			[mail_serv, maildrop_serv, nodis_serv, pki_serv]
-		end,
-            ok = attach_child(player_serv, ChildList, Children),
-            ok = attach_child(player_sync_serv, player_serv, Children),
-            ok = attach_child(smtp_serv, player_serv, Children),
-            ok = attach_child(pop3_serv, maildrop_serv, Children),
-            {ok, Pid};
+        {ok, SupervisorPid} ->
+            supervisor_helper:foreach_worker(
+              SupervisorPid,
+              fun(player_serv, Pid, NeighbourWorkers) when Config == normal ->
+                      LessNeighbourWorkers =
+                          lists:keydelete(nodis_serv, 1, NeighbourWorkers),
+                      Pid ! {neighbour_workers, LessNeighbourWorkers};
+                 (_Id, Pid, NeighbourWorkers) ->
+                      Pid ! {neighbour_workers, NeighbourWorkers}
+              end),
+            {ok, SupervisorPid};
         Error ->
             Error
-    end.
-
-%% Exported: attach_child
-
-attach_child(SourceId, TargetId, Children) ->
-    {value, {SourceId, SourcePid, _, _}} =
-        lists:keysearch(SourceId, 1, Children),
-    if
-        is_list(TargetId) ->
-            Targets =
-                lists:map(fun(Id) ->
-                                  {value, {Id, Pid, _, _}} =
-                                      lists:keysearch(Id, 1, Children),
-                                  {Id, Pid}
-                          end, TargetId),
-            SourcePid ! {sibling_pid, Targets},
-            ok;
-        true ->
-            {value, {TargetId, TargetPid, _, _}} =
-                lists:keysearch(TargetId, 1, Children),
-            SourcePid ! {sibling_pid, TargetId, TargetPid},
-            ok
     end.
 
 %% Exported: init
@@ -60,10 +35,10 @@ init(normal) ->
     [Pin, PinSalt] =
         config:lookup_children([pin, 'pin-salt'], config:lookup([system])),
     [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
-     Maildrop, SmtpServer, Pop3Server] =
+     Maildrop, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
           [nym, 'pki-password', 'sync-address', 'temp-dir', 'buffer-dir',
-           spiridon, maildrop, 'smtp-server', 'pop3-server'],
+           spiridon, maildrop, 'smtp-server', 'pop3-server', 'http-server'],
           config:lookup([player])),
     [F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
@@ -80,6 +55,9 @@ init(normal) ->
     [Pop3Address, Pop3CertFilename, Pop3PasswordDigest] =
         config:lookup_children([address, 'cert-filename', 'password-digest'],
                                Pop3Server),
+    [HttpAddress, HttpCertFilename, HttpPassword] =
+        config:lookup_children([address, 'cert-filename', password],
+                               HttpServer),
     LocalPkiServerDataDir =
         config:lookup([player, 'local-pki-server', 'data-dir']),
     PkiMode =
@@ -128,6 +106,10 @@ init(normal) ->
           start => {pop3_serv, start_link,
                     [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
+    RestServerSpec =
+	#{id => rest_server,
+          start => {rest_server, start_link,
+                    [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
 %% now always start one nodis_serv (but may be a dummy if sumulation)
 %%    NodisServSpec =
 %%        #{id => nodis_serv,
@@ -141,6 +123,7 @@ init(normal) ->
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,
+                                       RestServerSpec,
                                        %% NodisServSpec,
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
@@ -160,6 +143,9 @@ init(#simulated_player_serv_config{
         pop3_address = Pop3Address,
         pop3_cert_filename = Pop3CertFilename,
         pop3_password_digest = Pop3PasswordDigest,
+        http_address = HttpAddress,
+        http_cert_filename = HttpCertFilename,
+        http_password = HttpPassword,
         local_pki_server_data_dir = LocalPkiServerDataDir,
         pki_mode = PkiMode}) ->
     PlayerServSpec =
@@ -187,6 +173,10 @@ init(#simulated_player_serv_config{
           start => {pop3_serv, start_link,
                     [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
+    RestServerSpec =
+	#{id => rest_server,
+          start => {rest_server, start_link,
+                    [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_serv, start_link,
@@ -203,5 +193,6 @@ init(#simulated_player_serv_config{
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,
+                                       RestServerSpec,
                                        NodisServSpec,
                                        LocalPkiServSpec]}}.
