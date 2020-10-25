@@ -120,6 +120,8 @@ handle_http_get(Socket, Request, Body, Options) ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d1);
 	["d2" | Tokens] ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d2);
+	["dj" | Tokens] ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, dj);
 	Tokens ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
@@ -162,14 +164,34 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
 	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end;
 %% developer J GET code
-handle_http_get(Socket, Request, Url, Options, Tokens, _Body, dj) ->
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
     _Access = access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
         ["key"] ->
-            io:format("********** OPTIONS: ~p\n", [Options]),
-	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
+            [PkiServPid] = get_worker_pids([pki_serv], Options),
+            {ok, PkiUsers} = pki_serv:list(PkiServPid, all, 100),
+            JsonTerm =
+                lists:map(
+                  fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
+                          [{<<"nym">>, Nym},
+                           {<<"public-key">>,
+                            base64:encode(
+                              elgamal:public_key_to_binary(PublicKey))}]
+                  end, PkiUsers),
+	    rester_http_server:response_r(
+              Socket, Request, 200, "OK",
+              jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
+              [{content_type, "application/json"}]);
+        _ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
+	    response(Socket, Request, {error, not_found})
     end.
+
+get_worker_pids(Ids, Options) ->
+    {value, {_, NeighbourWorkers}} =
+        lists:keysearch(neighbour_workers, 1, Options),
+    supervisor_helper:get_selected_worker_pids(Ids, NeighbourWorkers).
 
 %% General PUT request uri:
 %% - [/vi]/item
