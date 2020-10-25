@@ -51,8 +51,10 @@
          degrees_to_meters :: function(),
          x = none :: integer() | none,
          y = none :: integer() | none,
-         neighbours = [] :: [{{inet:ip4_address(), inet:port_number()},
-                              pid() | not_initiator | synced}],
+         neighbour_state = #{} :: #{ nodis:node_address() => 
+					 nodis:node_state() },
+	 neighbour_pid = #{} :: #{ nodis:address() => undefined | pid(),
+				   pid() => nodis:node_address() },
          is_zombie = false :: boolean(),
          picked_as_source = false :: boolean(),
          pick_mode = is_nothing :: pick_mode(),
@@ -60,6 +62,7 @@
          meters_moved = 0 :: integer(),
          pki_mode :: local | {global, pki_network_client:pki_access()},
          simulated :: boolean(),
+	 nodis_serv_pid :: pid(),
          nodis_subscription :: reference() | undefined}).
 
 %% Exported: start_link
@@ -95,6 +98,7 @@ initial_message_handler(#state{nym = Nym,
              State#state{mail_serv_pid = MailServPid,
                          maildrop_serv_pid = MaildropServPid,
                          pki_serv_pid = PkiServPid,
+			 nodis_serv_pid = NodisServPid,
                          nodis_subscription = NodisSubscription}}
     end.
 
@@ -230,7 +234,8 @@ message_handler(
          degrees_to_meters = _DegreesToMeters,
          x = X,
          y = Y,
-         neighbours = Neighbours,
+         neighbour_state = NeighbourState,
+	 neighbour_pid = NeighbourPid,
          is_zombie = IsZombie,
          picked_as_source = PickedAsSource,
          pick_mode = PickMode,
@@ -238,6 +243,7 @@ message_handler(
          meters_moved = MetersMoved,
          pki_mode = PkiMode,
          simulated = Simulated,
+	 nodis_serv_pid = NodisServPid,
          nodis_subscription = NodisSubscription} = State) ->
   receive
       config_updated ->
@@ -482,93 +488,73 @@ message_handler(
       %%
       %% Nodis subscription events
       %%
+      {nodis, NodisSubscription, {pending, Addr}} ->
+	  NeighbourState1 = NeighbourState#{ Addr => pending },
+	  NeighbourPid1 = NeighbourPid#{ Addr => undefined },
+	  update_neighbours(Simulated, Nym, NeighbourState1, SyncAddress),
+	  {noreply, State#state{neighbour_state=NeighbourState1,
+				neighbour_pid=NeighbourPid1 }};
+
       {nodis, NodisSubscription, {up, Addr}} ->
-	  NAddress = {NIp, NPort} = nodis_address(Addr, SyncAddress),
+	  NAddress = {NIp, NPort} = nodis_ip_port(Addr, SyncAddress),
 	  ?dbg_log_tag(nodis, {up, NAddress}),
-          case lists:keysearch(NAddress, 1, Neighbours) of
-              {value, {_, Pid}} when is_pid(Pid) ->
-                  noreply;
-              {value, {_, not_initiator}} ->
-                  noreply;
-              {value, {_, synced}} ->
-                  {ok, Pid} = player_sync_serv:connect(
-                                self(),
-                                NPort,
-                                #player_sync_serv_options{
-                                   ip_address = NIp,
-                                   f = ?F,
-                                   keys = Keys}),
-                  UpdatedNeighbours =
-                      lists:keyreplace(NAddress, 1, Neighbours,
-                                       {NAddress, Pid}),
-                  {noreply, State#state{neighbours = UpdatedNeighbours}};
-              false ->
-		  %% Only ONE will initiate!
-                  case SyncAddress > NAddress of
-                      true ->
-                          {ok, Pid} = player_sync_serv:connect(
-                                        self(),
-                                        NPort,
-                                        #player_sync_serv_options{
-                                           ip_address = NIp,
-                                           f = ?F,
-                                           keys = Keys});
-                      false ->
-                          Pid = not_initiator
-                  end,
-                  NewNeighbours = [{NAddress, Pid}|Neighbours],
-                  case Simulated of
-                      true ->
-                          true = player_db:update(
-                                   #db_player{
-                                      nym = Nym,
-                                      neighbours =
-                                          get_player_nyms(NewNeighbours)});
-                      false ->
-                          true
-                  end,
-                  {noreply, State#state{neighbours = NewNeighbours}}
-          end;
+	  NeighbourState1 = NeighbourState#{ Addr => up },
+	  update_neighbours(Simulated, Nym, NeighbourState1,SyncAddress),
+	  case maps:get(Addr, NeighbourPid, undefined) of
+	      undefined when SyncAddress > NAddress ->
+		  {ok, Pid} = player_sync_serv:connect(
+				self(),
+				NPort,
+				#player_sync_serv_options{
+				   ip_address = NIp,
+				   f = ?F,
+				   keys = Keys}),
+		  %% double map!
+		  NeighbourPid1 = NeighbourPid#{ Pid => Addr, Addr => Pid },
+		  %% update player_db?
+		  {noreply, State#state{neighbour_state=NeighbourState1,
+					neighbour_pid = NeighbourPid1 }};
+	      undefined ->
+		  NeighbourPid1 = NeighbourPid#{ Addr => undefined },
+		  {noreply, State#state{neighbour_state=NeighbourState1,
+					neighbour_pid=NeighbourPid1 }};
+
+	      Pid when is_pid(Pid) ->
+		  ?dbg_log_tag(nodis, {up, Addr}),
+		  {noreply, State#state{neighbour_state=NeighbourState1}}
+	  end;
+
       {nodis, NodisSubscription, {down,Addr}} ->
-	  NAddress = nodis_address(Addr, SyncAddress),
+	  NAddress = nodis_ip_port(Addr, SyncAddress),
           ?dbg_log_tag(nodis, {down, NAddress}),
-          case lists:keytake(NAddress, 1, Neighbours) of
-	      {value,{_, Pid},NewNeighbours} ->
-                  if
-                      is_pid(Pid) ->
-                          exit(Pid, die);
-                      true ->
-                          ok
-                  end,
-                  case Simulated of
-                      true ->
-                          true = player_db:update(
-                                   #db_player{
-                                      nym = Nym,
-                                      neighbours =
-                                          get_player_nyms(NewNeighbours)});
-                      false ->
-                          ok
-                  end,
-                  {noreply, State#state{neighbours = NewNeighbours}};
-              false ->
-                  noreply
-          end;
+	  NeighbourState1 = NeighbourState#{ Addr => down },
+	  update_neighbours(Simulated, Nym, NeighbourState1,SyncAddress),
+	  case maps:get(Addr, NeighbourPid, undefined) of
+	      Pid when is_pid(Pid) ->
+		  exit(Pid, die),
+		  {noreply, State#state{neighbour_state=NeighbourState1}};
+	      _ ->
+		  {noreply, State#state{neighbour_state=NeighbourState1}}
+	  end;
+
       {nodis, NodisSubscription, {missed, Addr}} ->
-	  NAddress = nodis_address(Addr, SyncAddress),
+	  NAddress = nodis_ip_port(Addr, SyncAddress),
           ?dbg_log_tag(nodis, {missed, NAddress}),
           noreply;
+
       {'EXIT', Parent, Reason} ->
           exit(Reason);
       {'EXIT', Pid, _Reason} = UnknownMessage ->
-          case lists:keysearch(Pid, 2, Neighbours) of
-              {value, {{NeighbourSyncIpAddress, NeighbourSyncPort}, Pid}} ->
-                  NewNeighbours =
-                      lists:keyreplace(
-                        Pid, 2, Neighbours,
-                        {{NeighbourSyncIpAddress, NeighbourSyncPort}, synced}),
-                  {noreply, State#state{neighbours = NewNeighbours}};
-              false ->
+	  case maps:get(Pid, NeighbourPid, undefined) of
+	      Addr when is_tuple(Addr) ->
+		  NeighbourPid1 = maps:remove(Pid, NeighbourPid),
+		  NeighbourPid2 = maps:remove(Addr, NeighbourPid1),
+		  nodis:wait(NodisServPid, Addr),
+		  NeighbourState1 = NeighbourState#{ Addr => wait },
+		  update_neighbours(Simulated, Nym, NeighbourState1,SyncAddress),
+		  {noreply, State#state{neighbour_pid=NeighbourPid2,
+					neighbour_state=NeighbourState1}};
+              undefined ->
                   ?error_log({unknown_message, UnknownMessage}),
                   noreply
           end;
@@ -645,13 +631,21 @@ message_handler(
           noreply
   end.
 
-nodis_address(IP={_A,_B,_C,_D,_E,_F,_G,_H},{_SyncIP,Port}) -> %% IPv6
+nodis_ip_port(IP={_A,_B,_C,_D,_E,_F,_G,_H},{_SyncIP,Port}) -> %% IPv6
     {IP, Port};
-nodis_address(IP={_A,_B,_C,_D},{_SyncIP,Port}) ->  %% IPv4
+nodis_ip_port(IP={_A,_B,_C,_D},{_SyncIP,Port}) ->  %% IPv4
     {IP, Port};
-nodis_address({A,B,C,D,Port},_SyncAddr) -> %% simulator IPv5 :-)
-    {{A,B,C,D}, Port}.
+nodis_ip_port({A,B,C,D,Port},_SyncAddr) -> %% simulator IPv5 :-)
+    {{A,B,C,D}, Port};
+nodis_ip_port({A,B,C,D,E,F,G,H,Port},_SyncAddr) -> %% simulated IPv6
+    {{A,B,C,D,E,F,G,H}, Port}.
 
+%% nodis_address({{A,B,C,D},Port}, true) ->
+%%     {A,B,C,D,Port};
+%% nodis_address({{A,B,C,D,E,F,G,H}, Port}, true) ->
+%%     {A,B,C,D,E,F,G,H,Port};
+%% nodis_address({Addr,_Port}, false) ->
+%%     Addr.
 
 perform(_Do, 0) ->
     ok;
@@ -688,9 +682,26 @@ calculate_pick_mode(Buffer, {is_forwarder, {_, MessageId}}) ->
 calculate_pick_mode(_Buffer, PickMode) ->
     PickMode.
 
-get_player_nyms(Neighbours) ->
-    simulator_serv:get_player_nyms(
-      [SyncAddress || {SyncAddress, _Pid} <- Neighbours]).
+update_neighbours(true, Nym, Ns, SyncAddress) ->
+    true = player_db:update(
+	     #db_player{ nym = Nym,
+			 neighbours = get_player_nyms(Ns,SyncAddress)
+		       });
+update_neighbours(false, _Nym, _Ns,_SyncAddress) ->
+    true.
+
+%% #{ 
+-spec get_player_nyms(#{ nodis:node_address() => nodis:node_state() },
+		      SyncAddress::{inet:ip_address(),inet:port_number()}) ->
+	  [{string(),nodis:node_state()}].
+
+get_player_nyms(Ns,SyncAddress) ->
+    List = maps:to_list(Ns),
+    States = [St || {_Addr,St} <- List],
+    Addresses = [nodis_ip_port(Addr,SyncAddress) || {Addr,_St} <- List],
+    Nyms = simulator_serv:get_player_nyms(Addresses),
+    lists:zip(Nyms,States).
+
 
 %% print_speed(_DegreesToMeters, _X, _Y, _MetersMoved, 0, _NextX, _NextY) ->
 %%     ok;
