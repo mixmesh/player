@@ -8,6 +8,8 @@
 -module(rest_server).
 
 -include_lib("apptools/include/log.hrl").
+-include_lib("apptools/include/log.hrl").
+-include_lib("apptools/include/shorthand.hrl").
 
 -include_lib("rester/include/rester.hrl").
 -include_lib("rester/include/rester_socket.hrl").
@@ -185,13 +187,11 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
               [{content_type, "application/json"}]);
         ["key", Nym] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
-            case pki_serv:read(PkiServPid, Nym) of
-                {ok, #pki_user{nym = Nym, public_key = PublicKey}} ->
-                    JsonTerm =
-                        [{<<"nym">>, Nym},
-                         {<<"public-key">>,
-                          base64:encode(
-                            elgamal:public_key_to_binary(PublicKey))}],
+            NymBin = ?l2b(Nym),
+            case pki_serv:read(PkiServPid, NymBin) of
+                {ok, #pki_user{public_key = PublicKey}} ->
+                    JsonTerm = base64:encode(
+                                 elgamal:public_key_to_binary(PublicKey)),
                     rester_http_server:response_r(
                       Socket, Request, 200, "OK",
                       jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
@@ -200,8 +200,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                     response(Socket, Request, {error, not_found})
             end;
         _ ->
-	    ?dbg_log_fmt("~p not found", [Tokens]),
-	    response(Socket, Request, {error, not_found})
+	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end.
 
 get_worker_pids(Ids, Options) ->
@@ -271,6 +270,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     case Tokens of
+        ["key", "filter"] ->
+            ok;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end;
