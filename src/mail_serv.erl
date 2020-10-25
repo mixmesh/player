@@ -52,6 +52,8 @@ message_handler(#state{parent = Parent,
             "" = swaks(Nym, RecipientNym, SmtpIpAddress, SmtpPort,
                        SmtpPassword, PickedAsSource, Letter),
             noreply;
+        {neighbour_workers, _NeighbourWorkers} ->
+            noreply;
         {system, From, Request} ->
             {system, From, Request};
         {'EXIT', Parent, Reason} ->

@@ -22,7 +22,10 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
     PatchInitialServletState =
         fun(State) ->
                 receive
-                    {sibling_pid, maildrop_serv, MaildropServPid} ->
+                    {neighbour_workers, NeighbourWorkers} ->
+                        [MaildropServPid] =
+                            supervisor_helper:get_selected_worker_pids(
+                              [maildrop_serv], NeighbourWorkers),
                         State#state{maildrop_serv_pid = MaildropServPid}
                 end
         end,

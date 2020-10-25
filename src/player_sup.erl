@@ -17,16 +17,16 @@ start_link(Config) ->
     case supervisor:start_link(?MODULE, Config) of
         {ok, Pid} ->
             Children = supervisor:which_children(Pid),
-	    ChildList = 
+	    ChildList =
 		if Config =:= normal ->
 			[mail_serv, maildrop_serv, pki_serv];
 		   true  ->
 			[mail_serv, maildrop_serv, nodis_serv, pki_serv]
 		end,
-            ok = attach_child(player_serv, ChildList, Children),
-            ok = attach_child(player_sync_serv, player_serv, Children),
-            ok = attach_child(smtp_serv, player_serv, Children),
-            ok = attach_child(pop3_serv, maildrop_serv, Children),
+            supervisor_helper:foreach_worker(
+              Pid, fun(_Id, Pid, NeighbourWorkers) ->
+                           Pid ! {neighbour_workers, NeighbourWorkers}
+                   end),
             {ok, Pid};
         Error ->
             Error

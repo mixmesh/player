@@ -27,7 +27,10 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
     PatchInitialServletState =
         fun(State) ->
                 receive
-                    {sibling_pid, player_serv, PlayerServPid} ->
+                    {neighbour_workers, NeighbourWorkers} ->
+                        [PlayerServPid] =
+                            supervisor_helper:get_selected_worker_pids(
+                              [player_serv], NeighbourWorkers),
                         State#state{player_serv_pid = PlayerServPid}
                 end
         end,

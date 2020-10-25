@@ -79,23 +79,15 @@ initial_message_handler(#state{nym = Nym,
                                keys = {PublicKey, _SecretKey},
                                pki_mode = PkiMode} = State) ->
     receive
-        {sibling_pid, [{mail_serv, MailServPid},
-                       {maildrop_serv, MaildropServPid},
-                       {nodis_serv, NodisServPid},
-                       {pki_serv, PkiServPid}]} ->
-            {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
-            ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
-                                    PublicKey),
-            {swap_message_handler, fun message_handler/1,
-             State#state{mail_serv_pid = MailServPid,
-                         maildrop_serv_pid = MaildropServPid,
-                         pki_serv_pid = PkiServPid,
-                         nodis_subscription = NodisSubscription}};
-
-        {sibling_pid, [{mail_serv, MailServPid},
-                       {maildrop_serv, MaildropServPid},
-                       {pki_serv, PkiServPid}]} ->
-	    NodisServPid = whereis(nodis_serv),
+        {neighbour_workers, NeighbourWorkers} ->
+            case supervisor_helper:get_selected_worker_pids(
+                   [mail_serv, maildrop_serv, nodis_serv, pki_serv],
+                   NeighbourWorkers) of
+                [MailServPid, MaildropServPid, undefined, PkiServPid] ->
+                    NodisServPid = whereis(nodis_serv);
+                [MailServPid, MaildropServPid, NodisServPid, PkiServPid] ->
+                    ok
+            end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
             ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                     PublicKey),
