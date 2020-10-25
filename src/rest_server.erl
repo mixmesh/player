@@ -68,15 +68,16 @@ do_start(Start, Nym, HttpPassword, HttpCertFilename, {IfAddr,Port}) ->
 	 {reuseaddr, true},
 	 {idle_timeout, IdleTimeout},
 	 {send_timeout, SendTimeout} | S01],
+    ?daemon_log_tag_fmt(system, "REST server starting for ~s on ~s:~w",
+                        [Nym, inet:ntoa(IfAddr), Port]),
     rester_http_server:Start(Port, ResterHttpArgs).
 
 handle_http_request(Socket, Request, Body, Options) ->
-    %%io:format("********** OPTIONS: ~p\n", [Options]),
     ?dbg_log_fmt("request = ~s, headers=~s, body=~p",
 		[rester_http:format_request(Request),
 		 rester_http:format_hdr(Request#http_request.headers),
 		 Body]),
-    try handle_http_request_(Socket, Request, Body) of
+    try handle_http_request_(Socket, Request, Body, Options) of
 	Result -> Result
     catch
 	?EXCEPTION(error,Reason,_StackTrace) ->
@@ -85,14 +86,14 @@ handle_http_request(Socket, Request, Body, Options) ->
 	    erlang:error(Reason)
     end.
 
-handle_http_request_(Socket, Request, Body) ->
+handle_http_request_(Socket, Request, Body, Options) ->
     case Request#http_request.method of
 	'GET' ->
-	    handle_http_get(Socket, Request, Body);
+	    handle_http_get(Socket, Request, Body, Options);
 	'PUT' ->
-	    handle_http_put(Socket, Request, Body);
+	    handle_http_put(Socket, Request, Body, Options);
 	'POST' ->
-	    handle_http_post(Socket, Request, Body);
+	    handle_http_post(Socket, Request, Body, Options);
 	_ ->
 	    response(Socket, Request, {error, not_allowed})
     end.
@@ -103,7 +104,7 @@ handle_http_request_(Socket, Request, Body) ->
 %% - /versions                        return an json array of supported versions
 %%
 
-handle_http_get(Socket, Request, Body) ->
+handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
     case string:tokens(Url#url.path,"/") of
 	["versions"] ->
@@ -112,18 +113,18 @@ handle_http_get(Socket, Request, Body) ->
 					  Object,
 					  [{content_type,"application/json"}]);
 	["v1" | Tokens] ->
-	    handle_http_get(Socket, Request, Url, Tokens, Body, v1);
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1);
 	["v2" | Tokens] ->
-	    handle_http_get(Socket, Request, Url, Tokens, Body, v2);
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v2);
 	["d1" | Tokens] ->
-	    handle_http_get(Socket, Request, Url, Tokens, Body, d1);
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d1);
 	["d2" | Tokens] ->
-	    handle_http_get(Socket, Request, Url, Tokens, Body, d2);
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d2);
 	Tokens ->
-	    handle_http_get(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_get(Socket, Request, _Url, Tokens, _Body, v1) ->
+handle_http_get(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
     _Access = access(Socket),
     Accept = rester_http:accept_media(Request),
     case Tokens of
@@ -153,75 +154,76 @@ handle_http_get(Socket, Request, _Url, Tokens, _Body, v1) ->
 	    response(Socket, Request, {error, not_found})
     end;
 %% developer T GET code
-handle_http_get(Socket, Request, Url, Tokens, _Body, dt) ->
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
     _Access = access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
 	_ ->
-	    handle_http_get(Socket, Request, Url, Tokens, _Body, v1)
+	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end;
 %% developer J GET code
-handle_http_get(Socket, Request, Url, Tokens, _Body, dj) ->
+handle_http_get(Socket, Request, Url, Options, Tokens, _Body, dj) ->
     _Access = access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
         ["key"] ->
-	    handle_http_get(Socket, Request, Url, Tokens, _Body, v1)
+            io:format("********** OPTIONS: ~p\n", [Options]),
+	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end.
 
 %% General PUT request uri:
 %% - [/vi]/item
 %%
-handle_http_put(Socket, Request, Body) ->
+handle_http_put(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
     case string:tokens(Url#url.path,"/") of
 	["v1" | Tokens] ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, v1);
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1);
 	["dt" | Tokens] ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, dt);
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, dt);
 	["dj" | Tokens] ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, dj);
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj);
 	Tokens ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_put(Socket, Request, _Url, Tokens, _Body, v1) ->
+handle_http_put(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
     case Tokens of
 	Tokens ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    response(Socket, Request, {error, not_found})
     end;
 %% developer T PUT code
-handle_http_put(Socket, Request, Url, Tokens, Body, dt) ->
+handle_http_put(Socket, Request, Options, Url, Tokens, Body, dt) ->
     case Tokens of
 	_Other ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end;
 %% developer J PUT code
-handle_http_put(Socket, Request, Url, Tokens, Body, dj) ->
+handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
 	%% developer J code
 	_Other ->
-	    handle_http_put(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
 %% General POST request uri:
 %% - [/vi]/item
 %%
-handle_http_post(Socket, Request, Body) ->
+handle_http_post(Socket, Request, Body, Options) ->
    Url = Request#http_request.uri,
     case string:tokens(Url#url.path,"/") of
 	["v1" | Tokens] ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, v1);
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1);
 	["dt" | Tokens] ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, dt);
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt);
 	["dj" | Tokens] ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, dj);
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj);
 	Tokens ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_post(Socket, Request, _Url, Tokens, Body, v1) ->
+handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = access(Socket),
     _Data = parse_body(Request,Body),
     case Tokens of
@@ -229,16 +231,16 @@ handle_http_post(Socket, Request, _Url, Tokens, Body, v1) ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    response(Socket, Request, {error, not_found})
     end;
-handle_http_post(Socket, Request, Url, Tokens, Body, dt) ->
+handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     case Tokens of
 	_Other ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end;
-handle_http_post(Socket, Request, Url, Tokens, Body, dj) ->
+handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     _Data = parse_body(Request,Body),
     case Tokens of
 	_Other ->
-	    handle_http_post(Socket, Request, Url, Tokens, Body, v1)
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
 %%%-------------------------------------------------------------------
