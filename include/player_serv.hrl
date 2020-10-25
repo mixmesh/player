@@ -40,6 +40,9 @@
          pop3_address :: {inet:ip4_address(), inet:port_number()},
          pop3_cert_filename :: binary(),
          pop3_password_digest :: binary(),
+         http_address :: {inet:ip4_address(), inet:port_number()},
+         http_cert_filename :: binary(),
+         http_password :: binary(),
          local_pki_server_data_dir :: binary(),
          pki_mode :: local | {global, pki_network_client:pki_access()}}).
 

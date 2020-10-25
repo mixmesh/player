@@ -95,6 +95,22 @@ get() ->
              name = base64,
              typical = <<"7VWLYVsbr6YIsdxrZaCK+az9GeLTH/gCa3qKDNxht7e2WfsKN8aGVaKk5YBCdZ2FK07IJ+GvmstN/fPIH1djnA==">>,
              reloadable = false}}]},
+       {'http-server',
+        [{address,
+          #json_type{
+             name = ipaddress_port,
+             typical = {{242,45,0,34}, 8443},
+             reloadable = false}},
+         {'cert-filename',
+          #json_type{
+             name = readable_file,
+             typical = <<"/tmp/cert.pem">>,
+             reloadable = false}},
+         {'password',  %% should be stored encrypted via pin!
+          #json_type {
+             name = string,  %% db password
+             typical = <<"password">>,
+             reloadable = false}}]},
        {'local-pki-server',
         [{'data-dir',
           #json_type{
