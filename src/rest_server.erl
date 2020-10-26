@@ -246,6 +246,8 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
+%% dj/key (PUT)
+
 key_put(PkiServPid, [{<<"nym">>, Nym},
                      {<<"public-key">>, PublicKey},
                      {<<"password">>, Password}])
@@ -318,9 +320,21 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                     response(Socket, Request,
                              key_delete_post(PkiServPid, JsonTerm))
             end;
+        ["key", "export"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_export_post(PkiServPid, JsonTerm))
+            end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+%% /dj/key/filter (POST)
 
 key_filter_post(PkiServPid, JsonTerm) ->
     key_filter_post(PkiServPid, JsonTerm, {[], 100}).
@@ -346,6 +360,8 @@ key_filter_post(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
 key_filter_post(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
     {error, badarg}.
 
+%% /dj/key/delete (POST)
+
 key_delete_post(PkiServPid, [{<<"nyms">>, Nyms},
                              {<<"password">>, Password}])
   when is_binary(Password) andalso is_list(Nyms) ->
@@ -353,7 +369,7 @@ key_delete_post(PkiServPid, [{<<"nyms">>, Nyms},
 key_delete_post(_PkiServPid, _JsonTerm) ->
     {error, badarg}.
 
-key_delete_post(PkiServPid, [], Password, Failures) ->
+key_delete_post(_PkiServPid, [], _Password, Failures) ->
     JsonTerm =
         lists:map(
           fun({Nym, Reason}) ->
@@ -372,6 +388,31 @@ key_delete_post(PkiServPid, [Nym|Rest], Password, Failures)
     end;
 key_delete_post(PkiServPid, [_|Rest], Password, Failures) ->
     key_delete_post(PkiServPid, Rest, Password, Failures).
+
+%% /dj/key/export (POST)
+
+key_export_post(PkiServPid, Nyms) ->
+    key_export_post(PkiServPid, Nyms, []).
+
+key_export_post(_PkiServPid, [], PublicKeys) ->
+    KeyBundle =
+        lists:map(
+          fun(PublicKey) ->
+                  PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
+                  PublicKeyBinSize = size(PublicKeyBin),
+                  <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
+          end, PublicKeys),
+    {ok, {format, base64:encode(?l2b(KeyBundle))}};
+key_export_post(PkiServPid, [Nym|Rest], PublicKeys)
+  when is_binary(Nym) ->
+    case pki_serv:read(PkiServPid, Nym) of
+        {ok, #pki_user{public_key = PublicKey}} ->
+            key_export_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+        {error, no_such_user} ->
+            key_export_post(PkiServPid, Rest, PublicKeys)
+    end;
+key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
+    {error, badarg}.
 
 %%%-------------------------------------------------------------------
 %%% Parsing
