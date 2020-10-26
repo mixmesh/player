@@ -306,11 +306,24 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
-                             key_filter_post(PkiServPid, JsonTerm, {[], 100}))
+                             key_filter_post(PkiServPid, JsonTerm))
+            end;
+        ["key", "delete"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_delete_post(PkiServPid, JsonTerm))
             end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+key_filter_post(PkiServPid, JsonTerm) ->
+    key_filter_post(PkiServPid, JsonTerm, {[], 100}).
 
 key_filter_post(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
@@ -332,6 +345,33 @@ key_filter_post(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
     key_filter_post(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
 key_filter_post(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
     {error, badarg}.
+
+key_delete_post(PkiServPid, [{<<"nyms">>, Nyms},
+                             {<<"password">>, Password}])
+  when is_binary(Password) andalso is_list(Nyms) ->
+    key_delete_post(PkiServPid, Nyms, Password, []);
+key_delete_post(_PkiServPid, _JsonTerm) ->
+    {error, badarg}.
+
+key_delete_post(PkiServPid, [], Password, Failures) ->
+    JsonTerm =
+        lists:map(
+          fun({Nym, Reason}) ->
+                  [{<<"nym">>, Nym},
+                   {<<"reason">>, Reason}]
+          end, Failures),
+    {ok, {format, JsonTerm}};
+key_delete_post(PkiServPid, [Nym|Rest], Password, Failures)
+  when is_binary(Nym) ->
+    case pki_serv:delete(PkiServPid, Nym, Password) of
+        ok ->
+            key_delete_post(PkiServPid, Rest, Password, Failures);
+        {error, Reason} ->
+            key_delete_post(PkiServPid, Rest, Password,
+                            [{Nym, pki_serv:strerror(Reason)}|Failures])
+    end;
+key_delete_post(PkiServPid, [_|Rest], Password, Failures) ->
+    key_delete_post(PkiServPid, Rest, Password, Failures).
 
 %%%-------------------------------------------------------------------
 %%% Parsing
