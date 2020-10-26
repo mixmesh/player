@@ -739,7 +739,7 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
             {error, Reason}
     end.
 
-publish_public_key(PkiServPid, local, Nym, PkiPassword, PublicKey) ->
+publish_public_key(PkiServPid, local, Nym, _PkiPassword, PublicKey) ->
     case local_pki_serv:read(PkiServPid, Nym) of
         {ok, PublicKey} ->
             ?daemon_log_tag_fmt(system, "Local PKI server is in sync", []),

@@ -419,7 +419,7 @@ key_import_post(_PkiServPid, _JsonTerm) ->
     {error, badarg}.
 
 key_import_post(PkiServPid, <<>>, PublicKeys) ->
-    update_pki_users(PkiServPid, PublicKeys);
+    update_public_keys(PkiServPid, PublicKeys);
 key_import_post(PkiServPid,
                 <<PublicKeyBinSize:16/unsigned-integer,
                   PublicKeyBin:PublicKeyBinSize/binary,
@@ -429,12 +429,12 @@ key_import_post(PkiServPid,
 key_import_post(_PkiServPid, _KeyBundle, _PublicKeys) ->
     {error, badarg}.
 
-update_pki_users(_PkiServPid, []) ->
+update_public_keys(_PkiServPid, []) ->
     ok_204;
-update_pki_users(PkiServPid, [PublicKey|Rest]) ->
+update_public_keys(PkiServPid, [PublicKey|Rest]) ->
     case local_pki_serv:update(PkiServPid, PublicKey) of
         ok ->
-            update_pki_users(PkiServPid, Rest);
+            update_public_keys(PkiServPid, Rest);
         {error, permission_denied} ->
             {error, no_access}
     end.
