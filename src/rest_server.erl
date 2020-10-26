@@ -181,10 +181,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                             base64:encode(
                               elgamal:public_key_to_binary(PublicKey))}]
                   end, PkiUsers),
-	    rester_http_server:response_r(
-              Socket, Request, 200, "OK",
-              jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
-              [{content_type, "application/json"}]);
+            response(Socket, Request, {ok, {format, JsonTerm}});
         ["key", Nym] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
             NymBin = ?l2b(Nym),
@@ -192,10 +189,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                 {ok, #pki_user{public_key = PublicKey}} ->
                     JsonTerm = base64:encode(
                                  elgamal:public_key_to_binary(PublicKey)),
-                    rester_http_server:response_r(
-                      Socket, Request, 200, "OK",
-                      jsone:encode(JsonTerm, [{space, 1}, {indent, 2}]),
-                      [{content_type, "application/json"}]);
+                    response(Socket, Request, {ok, {format, JsonTerm}});
                 {error, no_such_user} ->
                     response(Socket, Request, {error, not_found})
             end;
@@ -452,8 +446,7 @@ response(Socket,Request,{ok, String, html})
   when is_list(String) ->
     rester_http_server:response_r(Socket,Request,200,"OK",String,
 			       [{content_type,"text/html"}]);
-response(Socket,Request,{ok, {format, Args}})
-  when is_list(Args) ->
+response(Socket,Request,{ok, {format, Args}}) ->
     {ContentType,Reply} = format_reply(Args, Request),
     rester_http_server:response_r(Socket, Request, 200, "OK", Reply,
 			       [{content_type,ContentType}]);
@@ -555,7 +548,7 @@ format_reply(Data,Request) ->
 	  JsonReply::string().
 
 format_reply_json(Term) ->
-    jsone:encode(Term).
+    jsone:encode(Term, [{space, 1}, {indent, 2}]).
 
 -spec format_reply_text(Term::term()) ->
 	  TextReply::string().
