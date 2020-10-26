@@ -246,6 +246,8 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
+%% dj/key (PUT)
+
 key_put(PkiServPid, [{<<"nym">>, Nym},
                      {<<"public-key">>, PublicKey},
                      {<<"password">>, Password}])
@@ -306,11 +308,46 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
-                             key_filter_post(PkiServPid, JsonTerm, {[], 100}))
+                             key_filter_post(PkiServPid, JsonTerm))
+            end;
+        ["key", "delete"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_delete_post(PkiServPid, JsonTerm))
+            end;
+        ["key", "export"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_export_post(PkiServPid, JsonTerm))
+            end;
+        ["key", "import"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_import_post(PkiServPid, JsonTerm))
             end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+%% /dj/key/filter (POST)
+
+key_filter_post(PkiServPid, JsonTerm) ->
+    key_filter_post(PkiServPid, JsonTerm, {[], 100}).
 
 key_filter_post(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
@@ -332,6 +369,96 @@ key_filter_post(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
     key_filter_post(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
 key_filter_post(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
     {error, badarg}.
+
+%% /dj/key/delete (POST)
+
+key_delete_post(PkiServPid, [{<<"nyms">>, Nyms},
+                             {<<"password">>, Password}])
+  when is_binary(Password) andalso is_list(Nyms) ->
+    key_delete_post(PkiServPid, Nyms, Password, []);
+key_delete_post(_PkiServPid, _JsonTerm) ->
+    {error, badarg}.
+
+key_delete_post(_PkiServPid, [], _Password, Failures) ->
+    JsonTerm =
+        lists:map(
+          fun({Nym, Reason}) ->
+                  [{<<"nym">>, Nym},
+                   {<<"reason">>, Reason}]
+          end, Failures),
+    {ok, {format, JsonTerm}};
+key_delete_post(PkiServPid, [Nym|Rest], Password, Failures)
+  when is_binary(Nym) ->
+    case pki_serv:delete(PkiServPid, Nym, Password) of
+        ok ->
+            key_delete_post(PkiServPid, Rest, Password, Failures);
+        {error, Reason} ->
+            key_delete_post(PkiServPid, Rest, Password,
+                            [{Nym, pki_serv:strerror(Reason)}|Failures])
+    end;
+key_delete_post(PkiServPid, [_|Rest], Password, Failures) ->
+    key_delete_post(PkiServPid, Rest, Password, Failures).
+
+%% /dj/key/export (POST)
+
+key_export_post(PkiServPid, Nyms) ->
+    key_export_post(PkiServPid, Nyms, []).
+
+key_export_post(_PkiServPid, [], PkiUsers) ->
+    KeyBundle =
+        lists:map(
+          fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
+                  NymSize = size(Nym),
+                  PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
+                  PublicKeyBinSize = size(PublicKeyBin),
+                  <<NymSize:16/unsigned-integer, Nym/binary,
+                    PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
+          end, PkiUsers),
+    {ok, {format, base64:encode(?l2b(KeyBundle))}};
+key_export_post(PkiServPid, [Nym|Rest], PkiUsers)
+  when is_binary(Nym) ->
+    case pki_serv:read(PkiServPid, Nym) of
+        {ok, PkiUser} ->
+            key_export_post(PkiServPid, Rest, [PkiUser|PkiUsers]);
+        {error, no_such_user} ->
+            key_export_post(PkiServPid, Rest, PkiUsers)
+    end;
+key_export_post(_PkiServPid, _Nyms, _PkiUsers) ->
+    {error, badarg}.
+
+%% /dj/key/import (POST)
+
+key_import_post(PkiServPid, [{<<"key-bundle">>, KeyBundle},
+                             {<<"password">>, Password}])
+  when is_binary(KeyBundle) andalso is_binary(Password) ->
+    key_import_post(PkiServPid, base64:decode(KeyBundle), Password, []);
+key_import_post(_PkiServPid, JsonTerm) ->
+    {error, badarg}.
+
+key_import_post(PkiServPid, <<>>, _Password, PkiUsers) ->
+    update_pki_users(PkiServPid, PkiUsers);
+key_import_post(PkiServPid,
+                <<NymSize:16/unsigned-integer, Nym:NymSize/binary,
+                  PublicKeyBinSize:16/unsigned-integer,
+                  PublicKeyBin:PublicKeyBinSize/binary,
+                  Rest/binary>>, Password, PkiUsers) ->
+    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
+    PkiUser = #pki_user{nym = Nym,
+                        public_key = PublicKey,
+                        password = Password},
+    key_import_post(PkiServPid, Rest, Password, [PkiUser|PkiUsers]);
+key_import_post(PkiServPid, _KeyBundle, _Password, _PkiUsers) ->
+    {error, badarg}.
+
+update_pki_users(_PkiServPid, []) ->
+    ok_204;
+update_pki_users(PkiServPid, [PkiUser|Rest]) ->
+    case pki_serv:update(PkiServPid, PkiUser) of
+        ok ->
+            update_pki_users(PkiServPid, Rest);
+        {error, permission_denied} ->
+            {error, no_access}
+    end.
 
 %%%-------------------------------------------------------------------
 %%% Parsing
