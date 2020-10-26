@@ -89,7 +89,7 @@ init(normal) ->
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Nym, SyncAddress, F, Keys]}},
+                    [Nym, SyncAddress, F, Keys, _Simulated=false]}},
     MailServSpec =
         #{id => mail_serv,
           start => {mail_serv, start_link, [Nym, SmtpAddress]}},
@@ -156,7 +156,7 @@ init(#simulated_player_serv_config{
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Nym, SyncAddress, F, Keys]}},
+                    [Nym, SyncAddress, F, Keys, _Simulated=true]}},
     MailServSpec =
         #{id => mail_serv,
           start => {mail_serv, start_link, [Nym, SmtpAddress]}},

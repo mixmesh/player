@@ -502,10 +502,14 @@ message_handler(
 	  update_neighbours(Simulated, Nym, NeighbourState1,SyncAddress),
 	  case maps:get(Addr, NeighbourPid, undefined) of
 	      undefined when SyncAddress > NAddress ->
+		  ?dbg_log_fmt("Connect ~p, sync = ~p\n",
+			       [NAddress, SyncAddress]),
 		  {ok, Pid} = player_sync_serv:connect(
 				self(),
 				NPort,
 				#player_sync_serv_options{
+				   simulated =  Simulated,
+				   sync_address = SyncAddress,
 				   ip_address = NIp,
 				   f = ?F,
 				   keys = Keys}),
@@ -639,13 +643,6 @@ nodis_ip_port({A,B,C,D,Port},_SyncAddr) -> %% simulator IPv5 :-)
     {{A,B,C,D}, Port};
 nodis_ip_port({A,B,C,D,E,F,G,H,Port},_SyncAddr) -> %% simulated IPv6
     {{A,B,C,D,E,F,G,H}, Port}.
-
-%% nodis_address({{A,B,C,D},Port}, true) ->
-%%     {A,B,C,D,Port};
-%% nodis_address({{A,B,C,D,E,F,G,H}, Port}, true) ->
-%%     {A,B,C,D,E,F,G,H,Port};
-%% nodis_address({Addr,_Port}, false) ->
-%%     Addr.
 
 perform(_Do, 0) ->
     ok;

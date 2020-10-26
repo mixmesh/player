@@ -1,6 +1,6 @@
 -module(player_sync_serv).
 -export([connect/3]).
--export([start_link/4, stop/1]).
+-export([start_link/5, stop/1]).
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
@@ -14,6 +14,7 @@
          options :: #player_sync_serv_options{},
          listen_socket :: inet:socket(),
          acceptors :: [pid()],
+	 nodis_serv_pid :: pid(),
          player_serv_pid = not_set :: pid() | not_set}).
 
 %% Exported: connect
@@ -24,13 +25,16 @@ connect(PlayerServPid, Port, Options) ->
     {ok, Pid}.
 
 connect_now(PlayerServPid, Port, #player_sync_serv_options{
+				    simulated = Simulated,
+				    sync_address = SyncAddress,
                                     ip_address = IpAddress,
                                     connect_timeout = ConnectTimeout,
                                     f = F} = Options) ->
     case gen_tcp:connect(IpAddress, Port,
-                         [{active, false}, binary, {packet, 2}],
+                         [{active, false}, binary, {packet, 4}],
                          ConnectTimeout) of
         {ok, Socket} ->
+	    register_simulator_endpoint(Socket, SyncAddress, Simulated),
             M = erlang:trunc(?PLAYER_BUFFER_MAX_SIZE * F),
             N = erlang:min(M, player_serv:buffer_size(PlayerServPid) * F),
             AdjustedN =
@@ -66,11 +70,12 @@ connect_now(PlayerServPid, Port, #player_sync_serv_options{
 
 %% Exported: start_link
 
-start_link(Nym, {IpAddress, Port}, F, Keys) ->
+start_link(Nym, {IpAddress, Port}, F, Keys, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Nym, Port,
-                    #player_sync_serv_options{ip_address = IpAddress,
+                    #player_sync_serv_options{simulated=Simulated,
+					      ip_address = IpAddress,
                                               f = F,
                                               keys = Keys})
        end,
@@ -95,7 +100,7 @@ init(Parent, Nym, Port,
     LOptions = Family ++ [{active, false},
 			  {ifaddr, IpAddress},
 			  binary,
-			  {packet, 2},
+			  {packet, 4},
 			  {reuseaddr, true}],
     {ok, ListenSocket} =
         gen_tcp:listen(Port, LOptions),
@@ -111,18 +116,25 @@ init(Parent, Nym, Port,
 initial_message_handler(State) ->
     receive
         {neighbour_workers, NeighbourWorkers} ->
-            [PlayerServPid] =
-                supervisor_helper:get_selected_worker_pids(
-                  [player_serv], NeighbourWorkers),
+            case supervisor_helper:get_selected_worker_pids(
+		   [player_serv, nodis_serv], NeighbourWorkers) of
+		[PlayerServPid, undefined] ->
+		    NodisServPid = whereis(nodis_serv);
+		[PlayerServPid, NodisServPid] ->
+		    ok
+	    end,
             {swap_message_handler, fun message_handler/1,
-             State#state{player_serv_pid = PlayerServPid}}
+             State#state{player_serv_pid = PlayerServPid,
+			 nodis_serv_pid = NodisServPid}}
     end.
 
 message_handler(#state{parent = Parent,
                        options = Options,
                        listen_socket = ListenSocket,
                        acceptors = Acceptors,
-                       player_serv_pid = PlayerServPid} = State) ->
+                       player_serv_pid = PlayerServPid,
+		       nodis_serv_pid = NodisServPid
+		      } = State) ->
     receive
         {call, From, stop} ->
             {stop, From, ok};
@@ -131,7 +143,8 @@ message_handler(#state{parent = Parent,
             Pid =
                 proc_lib:spawn_link(
                   fun() ->
-                          acceptor(Owner, PlayerServPid, Options, ListenSocket)
+                          acceptor(Owner, PlayerServPid, NodisServPid, 
+				   Options, ListenSocket)
                   end),
             {noreply, State#state{acceptors = [Pid|Acceptors]}};
         {system, From, Request} ->
@@ -154,10 +167,30 @@ message_handler(#state{parent = Parent,
             noreply
     end.
 
-acceptor(Owner, PlayerServPid, #player_sync_serv_options{f = F} = Options,
-         ListenSocket) ->
+acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
+    %% check failure reason of ListenSocket (reload, interface error etc)
+    Simulated = Options#player_sync_serv_options.simulated,
     {ok, Socket} = gen_tcp:accept(ListenSocket),
-    Owner ! accepted,
+    {ok, SyncAddress} = inet:sockname(Socket),
+    %% Node we may fail to lookup correct fake address if 
+    %% connecting side is not fast enough to register socket!
+    {ok, NAddress} = nodis_peer_address(Socket, Simulated),
+    Addr = nodis_address(NAddress, Simulated),
+    case nodis:get_state(NodisServPid, Addr) of
+	up when SyncAddress < NAddress ->
+	    ?dbg_log_fmt("Accept ~p, sync = ~p\n", [NAddress, SyncAddress]),
+	    Owner ! accepted,
+	    do_receive_messages(PlayerServPid, Options, Socket);
+	State ->
+	    ?dbg_log_fmt("Reject ~p, state=~w, sync = ~p\n", 
+			 [NAddress, State, SyncAddress]),
+	    gen_tcp:close(Socket),
+	    acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket)
+    end.
+
+do_receive_messages(PlayerServPid,
+		    #player_sync_serv_options{f = F} = Options,
+		    Socket) ->
     M = erlang:trunc(?PLAYER_BUFFER_MAX_SIZE * F),
     N = erlang:min(M, player_serv:buffer_size(PlayerServPid) * F),
     AdjustedN =
@@ -186,6 +219,39 @@ acceptor(Owner, PlayerServPid, #player_sync_serv_options{f = F} = Options,
             ?error_log({acceptor, receive_messages, Reason}),
             gen_tcp:close(Socket)
     end.
+
+
+%% create a map from socket {IP,Port} to SyncAddress, this
+%% is to allow simulator to find the connecting instance!
+register_simulator_endpoint(Socket, SyncAddress, true) ->
+    {ok,{IP,Port}} = inet:sockname(Socket),
+    ets:insert(endpoint_reg, {{IP,Port}, SyncAddress}).
+
+lookup_simulator_endpoint(Socket) ->
+    case inet:peername(Socket) of
+	{ok,IPPort} ->
+	    %% add a tiny delay, to allow connecting side to 
+	    %% register its enpoint so we map to the nodis instance!
+	    timer:sleep(10),
+	    case ets:lookup(endpoint_reg, IPPort) of
+		[{_,Sim_IPPort}] -> {ok,Sim_IPPort};
+		_ -> {ok,IPPort}
+	    end;
+	Error ->
+	    Error
+    end.    
+
+nodis_peer_address(Socket, false) ->
+    inet:peername(Socket);
+nodis_peer_address(Socket, true) ->
+    lookup_simulator_endpoint(Socket).
+
+nodis_address({{A,B,C,D},Port}, true) ->
+    {A,B,C,D,Port};
+nodis_address({{A,B,C,D,E,F,G,H}, Port}, true) ->
+    {A,B,C,D,E,F,G,H,Port};
+nodis_address({Addr,_Port}, false) ->
+    Addr.
 
 %%
 %% Send and receive messages
