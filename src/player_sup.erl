@@ -116,7 +116,7 @@ init(normal) ->
 %%          start => {nodis_serv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
-          start => {pki_serv, start_link, [local, LocalPkiServerDataDir]}},
+          start => {local_pki_serv, start_link, [LocalPkiServerDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
@@ -185,8 +185,8 @@ init(#simulated_player_serv_config{
                        'max-ping-lost' => 2}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
-          start => {pki_serv, start_link,
-                    [local, LocalPkiServerDataDir]}},
+          start => {local_pki_serv, start_link,
+                    [LocalPkiServerDataDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,

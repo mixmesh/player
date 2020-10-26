@@ -51,10 +51,11 @@
          degrees_to_meters :: function(),
          x = none :: integer() | none,
          y = none :: integer() | none,
-         neighbour_state = #{} :: #{ nodis:node_address() => 
-					 nodis:node_state() },
-	 neighbour_pid = #{} :: #{ nodis:address() => undefined | pid(),
-				   pid() => nodis:node_address() },
+         neighbour_state = #{} ::
+           #{nodis:node_address() => nodis:node_state() },
+	 neighbour_pid = #{} ::
+           #{nodis:address() => undefined | pid(),
+             pid() => nodis:node_address() },
          is_zombie = false :: boolean(),
          picked_as_source = false :: boolean(),
          pick_mode = is_nothing :: pick_mode(),
@@ -62,7 +63,7 @@
          meters_moved = 0 :: integer(),
          pki_mode :: local | {global, pki_network_client:pki_access()},
          simulated :: boolean(),
-	 nodis_serv_pid :: pid(),
+	 nodis_serv_pid :: pid() | undefined,
          nodis_subscription :: reference() | undefined}).
 
 %% Exported: start_link
@@ -690,7 +691,7 @@ update_neighbours(true, Nym, Ns, SyncAddress) ->
 update_neighbours(false, _Nym, _Ns,_SyncAddress) ->
     true.
 
-%% #{ 
+%% #{
 -spec get_player_nyms(#{ nodis:node_address() => nodis:node_state() },
 		      SyncAddress::{inet:ip_address(),inet:port_number()}) ->
 	  [{string(),nodis:node_state()}].
@@ -727,12 +728,7 @@ get_player_nyms(Ns,SyncAddress) ->
 %%
 
 read_public_key(PkiServPid, local, Nym) ->
-    case pki_serv:read(PkiServPid, Nym) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            {ok, PublicKey};
-        {error, Reason} ->
-            {error, Reason}
-    end;
+    local_pki_serv:read(PkiServPid, Nym);
 read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
     case pki_network_client:read(
            Nym, #pki_network_client_options{pki_access = PkiAccess},
@@ -744,23 +740,18 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
     end.
 
 publish_public_key(PkiServPid, local, Nym, PkiPassword, PublicKey) ->
-    case pki_serv:read(PkiServPid, Nym) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_log_tag_fmt(system, "PKI server is in sync", []),
+    case local_pki_serv:read(PkiServPid, Nym) of
+        {ok, PublicKey} ->
+            ?daemon_log_tag_fmt(system, "Local PKI server is in sync", []),
             ok;
-        {ok, PkiUser} ->
-            ok = pki_serv:update(PkiServPid,
-                                 PkiUser#pki_user{password = PkiPassword,
-                                                  public_key = PublicKey}),
-            ?daemon_log_tag_fmt(system, "Updated the PKI server", []),
+        {ok, NewPublicKey} ->
+            ok = local_pki_serv:update(PkiServPid, NewPublicKey),
+            ?daemon_log_tag_fmt(system, "Updated the local PKI server", []),
             ok;
-        {error, no_such_user} ->
-            ok = pki_serv:create(PkiServPid,
-                                 #pki_user{nym = Nym,
-                                           password = PkiPassword,
-                                           public_key = PublicKey}),
+        {error, no_such_key} ->
+            ok = local_pki_serv:create(PkiServPid, PublicKey),
             ?daemon_log_tag_fmt(
-               system, "Created an entry in the PKI server", []),
+               system, "Created an entry in the local PKI server", []),
             ok
     end;
 publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
@@ -769,7 +760,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
            Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_log_tag_fmt(system, "PKI server is in sync", []),
+            ?daemon_log_tag_fmt(system, "Global PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             case pki_network_client:update(
@@ -778,12 +769,13 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                    #pki_network_client_options{pki_access = PkiAccess},
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
-                    ?daemon_log_tag_fmt(system, "Updated the PKI server", []),
+                    ?daemon_log_tag_fmt(
+                       system, "Updated the global PKI server", []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not update the PKI server (~p). Will try again in ~w seconds.",
+                       "Could not update the global PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
                     publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
@@ -798,12 +790,12 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_log_tag_fmt(
-                       system, "Created an entry in the PKI server", []),
+                       system, "Created an entry in the global PKI server", []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not create an entry in the PKI server (~p). Will try again in ~w seconds.",
+                       "Could not create an entry in the global PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
                     publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
@@ -812,7 +804,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
         {error, Reason} ->
             ?daemon_log_tag_fmt(
                system,
-               "Could not contact PKI server (~p). Will try again in ~w seconds.",
+               "Could not contact the global PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
             publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,

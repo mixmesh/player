@@ -172,25 +172,23 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
     case Tokens of
         ["key"] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
-            {ok, PkiUsers} = pki_serv:list(PkiServPid, all, 100),
+            {ok, PublicKeys} = local_pki_serv:list(PkiServPid, all, 100),
             JsonTerm =
                 lists:map(
-                  fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
-                          [{<<"nym">>, Nym},
-                           {<<"public-key">>,
-                            base64:encode(
-                              elgamal:public_key_to_binary(PublicKey))}]
-                  end, PkiUsers),
+                  fun(PublicKey) ->
+                          base64:encode(
+                            elgamal:public_key_to_binary(PublicKey))
+                  end, PublicKeys),
             response(Socket, Request, {ok, {format, JsonTerm}});
         ["key", Nym] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
             NymBin = ?l2b(Nym),
-            case pki_serv:read(PkiServPid, NymBin) of
-                {ok, #pki_user{public_key = PublicKey}} ->
+            case local_pki_serv:read(PkiServPid, NymBin) of
+                {ok, PublicKey} ->
                     JsonTerm = base64:encode(
                                  elgamal:public_key_to_binary(PublicKey)),
                     response(Socket, Request, {ok, {format, JsonTerm}});
-                {error, no_such_user} ->
+                {error, no_such_key} ->
                     response(Socket, Request, {error, not_found})
             end;
         _ ->
@@ -248,25 +246,18 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 
 %% dj/key (PUT)
 
-key_put(PkiServPid, [{<<"nym">>, Nym},
-                     {<<"public-key">>, PublicKey},
-                     {<<"password">>, Password}])
-  when is_binary(Nym) andalso
-       is_binary(PublicKey) andalso
-       is_binary(Password) ->
-    PkiUser = #pki_user{nym = Nym,
-                        public_key = elgamal:binary_to_public_key(PublicKey),
-                        password = Password},
-    case pki_serv:update(PkiServPid, PkiUser) of
+key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
+    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
+    case local_pki_serv:update(PkiServPid, PublicKey) of
         ok ->
             ok_204;
-        {error, no_such_user} ->
-            ok = pki_serv:create(PkiServPid, PkiUser),
+        {error, no_such_key} ->
+            ok = local_pki_serv:create(PkiServPid, PublicKey),
             ok_204;
         {error, permission_denied} ->
             {error, no_access}
     end;
-key_put(_PkiServPid, _JsonTewrm) ->
+key_put(_PkiServPid, _JsonTerm) ->
     {error, badarg}.
 
 %% General POST request uri:
@@ -287,7 +278,7 @@ handle_http_post(Socket, Request, Body, Options) ->
 
 handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = access(Socket),
-    _Data = parse_body(Request,Body),
+    _Data = parse_body(Request, Body),
     case Tokens of
 	Tokens ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
@@ -349,111 +340,99 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 key_filter_post(PkiServPid, JsonTerm) ->
     key_filter_post(PkiServPid, JsonTerm, {[], 100}).
 
-key_filter_post(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
+key_filter_post(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
     JsonTerm =
         lists:map(
-          fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
-                  [{<<"nym">>, Nym},
-                   {<<"public-key">>,
-                    base64:encode(
-                      elgamal:public_key_to_binary(PublicKey))}]
+          fun(PublicKey) ->
+                  base64:encode(elgamal:public_key_to_binary(PublicKey))
           end, lists:usort(
-                 fun(PkiUser1, PkiUser2) ->
-                         PkiUser1#pki_user.nym < PkiUser2#pki_user.nym
-                 end, PkiUsersAcc)),
+                 fun(PublicKey1, PublicKey2) ->
+                         PublicKey1#pk.nym < PublicKey2#pk.nym
+                 end, PublicKeysAcc)),
     {ok, {format, JsonTerm}};
-key_filter_post(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
+key_filter_post(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
   when is_binary(SubStringNym) ->
-    {ok, PkiUsers} = pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
-    key_filter_post(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
-key_filter_post(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
+    {ok, PublicKeys} =
+        local_pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
+    key_filter_post(PkiServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
+key_filter_post(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
     {error, badarg}.
 
 %% /dj/key/delete (POST)
 
-key_delete_post(PkiServPid, [{<<"nyms">>, Nyms},
-                             {<<"password">>, Password}])
-  when is_binary(Password) andalso is_list(Nyms) ->
-    key_delete_post(PkiServPid, Nyms, Password, []);
+key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
+    key_delete_post(PkiServPid, Nyms, []);
 key_delete_post(_PkiServPid, _JsonTerm) ->
     {error, badarg}.
 
-key_delete_post(_PkiServPid, [], _Password, Failures) ->
+key_delete_post(_PkiServPid, [], Failures) ->
     JsonTerm =
         lists:map(
           fun({Nym, Reason}) ->
                   [{<<"nym">>, Nym},
-                   {<<"reason">>, Reason}]
+                   {<<"reason">>, local_pki_serv:strerror(Reason)}]
           end, Failures),
     {ok, {format, JsonTerm}};
-key_delete_post(PkiServPid, [Nym|Rest], Password, Failures)
+key_delete_post(PkiServPid, [Nym|Rest], Failures)
   when is_binary(Nym) ->
-    case pki_serv:delete(PkiServPid, Nym, Password) of
+    case local_pki_serv:delete(PkiServPid, Nym) of
         ok ->
-            key_delete_post(PkiServPid, Rest, Password, Failures);
+            key_delete_post(PkiServPid, Rest, Failures);
         {error, Reason} ->
-            key_delete_post(PkiServPid, Rest, Password,
-                            [{Nym, pki_serv:strerror(Reason)}|Failures])
+            key_delete_post(PkiServPid, Rest,
+                            [{Nym, Reason}|Failures])
     end;
-key_delete_post(PkiServPid, [_|Rest], Password, Failures) ->
-    key_delete_post(PkiServPid, Rest, Password, Failures).
+key_delete_post(PkiServPid, [_|Rest], Failures) ->
+    key_delete_post(PkiServPid, Rest, Failures).
 
 %% /dj/key/export (POST)
 
 key_export_post(PkiServPid, Nyms) ->
     key_export_post(PkiServPid, Nyms, []).
 
-key_export_post(_PkiServPid, [], PkiUsers) ->
+key_export_post(_PkiServPid, [], PublicKeys) ->
     KeyBundle =
         lists:map(
-          fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
-                  NymSize = size(Nym),
+          fun(PublicKey) ->
                   PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
                   PublicKeyBinSize = size(PublicKeyBin),
-                  <<NymSize:16/unsigned-integer, Nym/binary,
-                    PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
-          end, PkiUsers),
+                  <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
+          end, PublicKeys),
     {ok, {format, base64:encode(?l2b(KeyBundle))}};
-key_export_post(PkiServPid, [Nym|Rest], PkiUsers)
+key_export_post(PkiServPid, [Nym|Rest], PublicKeys)
   when is_binary(Nym) ->
-    case pki_serv:read(PkiServPid, Nym) of
-        {ok, PkiUser} ->
-            key_export_post(PkiServPid, Rest, [PkiUser|PkiUsers]);
-        {error, no_such_user} ->
-            key_export_post(PkiServPid, Rest, PkiUsers)
+    case local_pki_serv:read(PkiServPid, Nym) of
+        {ok, PublicKey} ->
+            key_export_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+        {error, no_such_key} ->
+            key_export_post(PkiServPid, Rest, PublicKeys)
     end;
-key_export_post(_PkiServPid, _Nyms, _PkiUsers) ->
+key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
     {error, badarg}.
 
 %% /dj/key/import (POST)
 
-key_import_post(PkiServPid, [{<<"key-bundle">>, KeyBundle},
-                             {<<"password">>, Password}])
-  when is_binary(KeyBundle) andalso is_binary(Password) ->
-    key_import_post(PkiServPid, base64:decode(KeyBundle), Password, []);
-key_import_post(_PkiServPid, JsonTerm) ->
+key_import_post(PkiServPid, KeyBundle) when is_binary(KeyBundle) ->
+    key_import_post(PkiServPid, base64:decode(KeyBundle), []);
+key_import_post(_PkiServPid, _JsonTerm) ->
     {error, badarg}.
 
-key_import_post(PkiServPid, <<>>, _Password, PkiUsers) ->
-    update_pki_users(PkiServPid, PkiUsers);
+key_import_post(PkiServPid, <<>>, PublicKeys) ->
+    update_pki_users(PkiServPid, PublicKeys);
 key_import_post(PkiServPid,
-                <<NymSize:16/unsigned-integer, Nym:NymSize/binary,
-                  PublicKeyBinSize:16/unsigned-integer,
+                <<PublicKeyBinSize:16/unsigned-integer,
                   PublicKeyBin:PublicKeyBinSize/binary,
-                  Rest/binary>>, Password, PkiUsers) ->
+                  Rest/binary>>, PublicKeys) ->
     PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-    PkiUser = #pki_user{nym = Nym,
-                        public_key = PublicKey,
-                        password = Password},
-    key_import_post(PkiServPid, Rest, Password, [PkiUser|PkiUsers]);
-key_import_post(PkiServPid, _KeyBundle, _Password, _PkiUsers) ->
+    key_import_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+key_import_post(_PkiServPid, _KeyBundle, _PublicKeys) ->
     {error, badarg}.
 
 update_pki_users(_PkiServPid, []) ->
     ok_204;
-update_pki_users(PkiServPid, [PkiUser|Rest]) ->
-    case pki_serv:update(PkiServPid, PkiUser) of
+update_pki_users(PkiServPid, [PublicKey|Rest]) ->
+    case local_pki_serv:update(PkiServPid, PublicKey) of
         ok ->
             update_pki_users(PkiServPid, Rest);
         {error, permission_denied} ->
@@ -470,14 +449,22 @@ parse_body(Request, Body) ->
 parse_body(Request, Body, Options) ->
     ?dbg_log_fmt("body ~p", [Body]),
     case try_parse_body(Request, Body, Options) of
-	{ok, {struct, [{"data", Data}]}} -> parse_data(Data);
-	{ok, {struct, List}} -> List;
-	{ok, {array, List}} -> List;
-	{ok, Data} ->  parse_data(Data);
-	[{"data", Data}] -> parse_data(Data);
-	[{Data, true}] -> parse_data(Data);  %% default is urlencoded
-	List when is_list(List) -> List;
-	Error -> Error
+	{ok, {struct, [{"data", Data}]}} ->
+            parse_data(Data);
+	{ok, {struct, List}} ->
+            List;
+	{ok, {array, List}} ->
+            List;
+	{ok, Data} ->
+            parse_data(Data);
+	[{"data", Data}] ->
+            parse_data(Data);
+	[{Data, true}] ->
+            parse_data(Data);  %% default is urlencoded
+	List when is_list(List) ->
+            List;
+	Error ->
+            Error
     end.
 
 try_parse_body(Request, Body, Options) ->
@@ -485,8 +472,10 @@ try_parse_body(Request, Body, Options) ->
 	{error, _Reason} ->
 	    ?log_warning("parse failed, reason ~p", [_Reason]),
 	    {error, badarg};
-	Result -> Result
-    catch error:Reason -> {error, Reason}
+	Result ->
+            Result
+    catch
+        error:Reason -> {error, Reason}
     end.
 
 
@@ -517,12 +506,15 @@ parse_json_string(Data, Options) ->
             JsoneOptions = []
     end,
     try jsone:decode(iolist_to_binary(Data), JsoneOptions) of
-	Term -> {ok,Term}
+	Term ->
+            {ok, Term}
     catch
 	error:Reason ->
 	    {error, Reason}
     end.
 
+parse_data(B) when is_binary(B) ->
+    B;
 parse_data(I) when is_integer(I) ->
     I;
 parse_data(F) when is_float(F) ->
