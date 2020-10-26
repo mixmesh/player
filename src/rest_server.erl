@@ -233,10 +233,39 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dt) ->
 %% developer J PUT code
 handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
-	%% developer J code
+        ["key"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request, key_put(PkiServPid, JsonTerm))
+            end;
 	_Other ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+key_put(PkiServPid, [{<<"nym">>, Nym},
+                     {<<"public-key">>, PublicKey},
+                     {<<"password">>, Password}])
+  when is_binary(Nym) andalso
+       is_binary(PublicKey) andalso
+       is_binary(Password) ->
+    PkiUser = #pki_user{nym = Nym,
+                        public_key = elgamal:binary_to_public_key(PublicKey),
+                        password = Password},
+    case pki_serv:update(PkiServPid, PkiUser) of
+        ok ->
+            ok_204;
+        {error, no_such_user} ->
+            ok = pki_serv:create(PkiServPid, PkiUser),
+            ok_204;
+        {error, permission_denied} ->
+            {error, no_access}
+    end;
+key_put(_PkiServPid, _JsonTewrm) ->
+    {error, badarg}.
 
 %% General POST request uri:
 %% - [/vi]/item
@@ -270,21 +299,21 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
         ["key", "filter"] ->
-            case parse_body(Request, Body) of
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _} ->
-                    response(Socket, Request, {error, badarg1});
-                SubStringNyms ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
-                             key_filter(PkiServPid, SubStringNyms, {[], 100}))
+                             key_filter_post(PkiServPid, JsonTerm, {[], 100}))
             end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-key_filter(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
+key_filter_post(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
-    io:format("BAJS: ~p\n", [PkiUsersAcc]),
     JsonTerm =
         lists:map(
           fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
@@ -297,26 +326,23 @@ key_filter(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
                          PkiUser1#pki_user.nym < PkiUser2#pki_user.nym
                  end, PkiUsersAcc)),
     {ok, {format, JsonTerm}};
-key_filter(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
+key_filter_post(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
   when is_binary(SubStringNym) ->
-    case io_lib:char_list(?b2l(SubStringNym)) of
-        true ->
-            {ok, PkiUsers} =
-                pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
-            key_filter(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
-        false ->
-            {error, badarg2}
-    end;
-key_filter(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
-    {error, badarg3}.
+    {ok, PkiUsers} = pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
+    key_filter_post(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
+key_filter_post(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
+    {error, badarg}.
 
 %%%-------------------------------------------------------------------
 %%% Parsing
 %%%-------------------------------------------------------------------
 
 parse_body(Request, Body) ->
+    parse_body(Request, Body, []).
+
+parse_body(Request, Body, Options) ->
     ?dbg_log_fmt("body ~p", [Body]),
-    case try_parse_body(Request, Body) of
+    case try_parse_body(Request, Body, Options) of
 	{ok, {struct, [{"data", Data}]}} -> parse_data(Data);
 	{ok, {struct, List}} -> List;
 	{ok, {array, List}} -> List;
@@ -327,9 +353,8 @@ parse_body(Request, Body) ->
 	Error -> Error
     end.
 
-
-try_parse_body(Request, Body) ->
-    try parse_data(Request, Body) of
+try_parse_body(Request, Body, Options) ->
+    try parse_data(Request, Body, Options) of
 	{error, _Reason} ->
 	    ?log_warning("parse failed, reason ~p", [_Reason]),
 	    {error, badarg};
@@ -338,9 +363,9 @@ try_parse_body(Request, Body) ->
     end.
 
 
-parse_data(Request, Body) when is_binary(Body)->
-    parse_data(Request, binary_to_list(Body));
-parse_data(Request, Body) ->
+parse_data(Request, Body, Options) when is_binary(Body)->
+    parse_data(Request, binary_to_list(Body), Options);
+parse_data(Request, Body, Options) ->
     Type = (Request#http_request.headers)#http_chdr.content_type,
     ?dbg_log_fmt("type ~p, body ~p", [Type, Body]),
     case Type of
@@ -349,7 +374,7 @@ parse_data(Request, Body) ->
 	"text/plain" ->
 	    {ok,parse_data(Body)};
 	"application/json" ->
-	    parse_json_string(Body);
+	    parse_json_string(Body, Options);
 	"application/x-www-form-urlencoded" ->
 	    rester_http:parse_query(Body);
 	_Type ->
@@ -357,8 +382,14 @@ parse_data(Request, Body) ->
 	    {error, "Unknown content type"}
     end.
 
-parse_json_string(Data) ->
-    try jsone:decode(iolist_to_binary(Data)) of
+parse_json_string(Data, Options) ->
+    case lists:keysearch(jsone_options, 1, Options) of
+        {value, {_, JsoneOptions}} ->
+            ok;
+        false ->
+            JsoneOptions = []
+    end,
+    try jsone:decode(iolist_to_binary(Data), JsoneOptions) of
 	Term -> {ok,Term}
     catch
 	error:Reason ->
@@ -461,6 +492,8 @@ if_modified_since(IfModifiedSince, Lmt) ->
 %%%-------------------------------------------------------------------
 response(Socket,Request,ok)  ->
     rester_http_server:response_r(Socket,Request,200,"OK","",[]);
+response(Socket,Request,ok_204)  ->
+    rester_http_server:response_r(Socket,Request,204,"OK","",[]);
 response(Socket,Request,{ok, String})
   when is_list(String) ->
     rester_http_server:response_r(Socket,Request,200,"OK",String,[]);
