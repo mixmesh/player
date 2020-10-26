@@ -264,17 +264,51 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     case Tokens of
-        ["key", "filter"] ->
-            ok;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
-    _Data = parse_body(Request,Body),
     case Tokens of
+        ["key", "filter"] ->
+            case parse_body(Request, Body) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg1});
+                SubStringNyms ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_filter(PkiServPid, SubStringNyms, {[], 100}))
+            end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+key_filter(_PkiServPid, SubStringNyms, {PkiUsersAcc, N})
+  when SubStringNyms == [] orelse N == 0 ->
+    io:format("BAJS: ~p\n", [PkiUsersAcc]),
+    JsonTerm =
+        lists:map(
+          fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
+                  [{<<"nym">>, Nym},
+                   {<<"public-key">>,
+                    base64:encode(
+                      elgamal:public_key_to_binary(PublicKey))}]
+          end, lists:usort(
+                 fun(PkiUser1, PkiUser2) ->
+                         PkiUser1#pki_user.nym < PkiUser2#pki_user.nym
+                 end, PkiUsersAcc)),
+    {ok, {format, JsonTerm}};
+key_filter(PkiServPid, [SubStringNym|Rest], {PkiUsersAcc, N})
+  when is_binary(SubStringNym) ->
+    case io_lib:char_list(?b2l(SubStringNym)) of
+        true ->
+            {ok, PkiUsers} =
+                pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
+            key_filter(PkiServPid, Rest, {PkiUsers ++ PkiUsersAcc, N - 1});
+        false ->
+            {error, badarg2}
+    end;
+key_filter(_PkiServPid, _SubStringNyms, {_PkiUsersAcc, _N}) ->
+    {error, badarg3}.
 
 %%%-------------------------------------------------------------------
 %%% Parsing
