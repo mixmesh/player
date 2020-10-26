@@ -330,6 +330,16 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                     response(Socket, Request,
                              key_export_post(PkiServPid, JsonTerm))
             end;
+        ["key", "import"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    response(Socket, Request,
+                             key_import_post(PkiServPid, JsonTerm))
+            end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
@@ -394,25 +404,61 @@ key_delete_post(PkiServPid, [_|Rest], Password, Failures) ->
 key_export_post(PkiServPid, Nyms) ->
     key_export_post(PkiServPid, Nyms, []).
 
-key_export_post(_PkiServPid, [], PublicKeys) ->
+key_export_post(_PkiServPid, [], PkiUsers) ->
     KeyBundle =
         lists:map(
-          fun(PublicKey) ->
+          fun(#pki_user{nym = Nym, public_key = PublicKey}) ->
+                  NymSize = size(Nym),
                   PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
                   PublicKeyBinSize = size(PublicKeyBin),
-                  <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
-          end, PublicKeys),
+                  <<NymSize:16/unsigned-integer, Nym/binary,
+                    PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
+          end, PkiUsers),
     {ok, {format, base64:encode(?l2b(KeyBundle))}};
-key_export_post(PkiServPid, [Nym|Rest], PublicKeys)
+key_export_post(PkiServPid, [Nym|Rest], PkiUsers)
   when is_binary(Nym) ->
     case pki_serv:read(PkiServPid, Nym) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            key_export_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+        {ok, PkiUser} ->
+            key_export_post(PkiServPid, Rest, [PkiUser|PkiUsers]);
         {error, no_such_user} ->
-            key_export_post(PkiServPid, Rest, PublicKeys)
+            key_export_post(PkiServPid, Rest, PkiUsers)
     end;
-key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
+key_export_post(_PkiServPid, _Nyms, _PkiUsers) ->
     {error, badarg}.
+
+%% /dj/key/import (POST)
+
+key_import_post(PkiServPid, [{<<"key-bundle">>, KeyBundle},
+                             {<<"password">>, Password}])
+  when is_binary(KeyBundle) andalso is_binary(Password) ->
+    key_import_post(PkiServPid, base64:decode(KeyBundle), Password, []);
+key_import_post(_PkiServPid, JsonTerm) ->
+    {error, badarg}.
+
+key_import_post(PkiServPid, <<>>, _Password, PkiUsers) ->
+    update_pki_users(PkiServPid, PkiUsers);
+key_import_post(PkiServPid,
+                <<NymSize:16/unsigned-integer, Nym:NymSize/binary,
+                  PublicKeyBinSize:16/unsigned-integer,
+                  PublicKeyBin:PublicKeyBinSize/binary,
+                  Rest/binary>>, Password, PkiUsers) ->
+    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
+    PkiUser = #pki_user{nym = Nym,
+                        public_key = PublicKey,
+                        password = Password},
+    key_import_post(PkiServPid, Rest, Password, [PkiUser|PkiUsers]);
+key_import_post(PkiServPid, _KeyBundle, _Password, _PkiUsers) ->
+    {error, badarg}.
+
+update_pki_users(_PkiServPid, []) ->
+    ok_204;
+update_pki_users(PkiServPid, [PkiUser|Rest]) ->
+    case pki_serv:update(PkiServPid, PkiUser) of
+        ok ->
+            update_pki_users(PkiServPid, Rest);
+        {error, permission_denied} ->
+            {error, no_access}
+    end.
 
 %%%-------------------------------------------------------------------
 %%% Parsing
