@@ -177,12 +177,13 @@ init(#simulated_player_serv_config{
 	#{id => rest_server,
           start => {rest_server, start_link,
                     [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
+    {_SyncIp,SyncPort} = SyncAddress,
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_serv, start_link,
                     [#{simulation => true,
-                       'ping-interval' => 500,
-                       'max-ping-lost' => 2}]}},
+		       mport => SyncPort,
+		       oport => SyncPort+1 }]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {pki_serv, start_link,
