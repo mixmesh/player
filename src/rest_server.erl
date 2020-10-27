@@ -170,6 +170,17 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
     _Access = access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
+        ["player"] ->
+            %% FIXME: Mask the secret key one hour after box initialization
+            Nym = config:lookup([player, nym]),
+            [PublicKey, SecretKey] =
+                config:lookup_children(['public-key', 'secret-key'],
+                                       config:lookup([player, spiridon])),
+            JsonTerm =
+                [{<<"nym">>, Nym},
+                 {<<"public-key">>, base64:encode(PublicKey)},
+                 {<<"secret-key">>, base64:encode(SecretKey)}],
+            response(Socket, Request, {ok, {format, JsonTerm}});
         ["key"] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
             {ok, PublicKeys} = local_pki_serv:list(PkiServPid, all, 100),
@@ -291,6 +302,14 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
+        ["player", "filter"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    response(Socket, Request, player_filter_post(JsonTerm))
+            end;
         ["key", "filter"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
@@ -334,6 +353,52 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
+
+%% /dj/player/filter (POST)
+
+player_filter_post(JsonTerm) ->
+    case extract_filter(
+           JsonTerm, [[<<"nym">>], [<<"public-key">>], [<<"secret-key">>]]) of
+        {ok, [FetchNym, FetchPublicKey, FetchSecretKey]} ->
+            config_value(
+              FetchNym,
+              fun() -> {<<"nym">>, config:lookup([player, nym])}  end) ++
+                config_value(
+                  FetchPublicKey,
+                  fun() ->
+                          PublicKey =
+                              config:lookup([player, spiridon, 'public-key']),
+                          {<<"public-key">>, base64:encode(PublicKey)}
+                  end) ++
+                config_value(
+                  FetchSecretKey,
+                  fun() ->
+                          SecretKey =
+                              config:lookup([player, spiridon, 'secret-key']),
+                          {<<"secret-key">>, base64:encode(SecretKey)}
+                  end);
+        invalid_filter ->
+            {error, badarg}
+    end.
+
+extract_filter(_JsonTerm, []) ->
+    [];
+extract_filter(JsonTerm, [Path|Rest]) ->
+    [filter_match(JsonTerm, Path)|extract_filter(JsonTerm, Rest)].
+
+filter_match(_JsonTerm, []) ->
+    false;
+filter_match([{Name, Value}], [Name]) when is_boolean(Value) ->
+    Value;
+filter_match([{Name, JsonTerm}|_], [Name|Rest]) when is_list(JsonTerm) ->
+    filter_match(JsonTerm, Rest);
+filter_match(_JsonTerm, _Path) ->
+    false.
+
+config_value(false, _Do) ->
+    [];
+config_value(true, Do) ->
+    [Do()].
 
 %% /dj/key/filter (POST)
 
