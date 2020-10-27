@@ -191,6 +191,17 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                 {error, no_such_key} ->
                     response(Socket, Request, {error, not_found})
             end;
+        ["player"] ->
+            %% FIXME: Mask the secret key one hour after box initialization
+            Nym = config:lookup([player, nym]),
+            [PublicKey, SecretKey] =
+                config:lookup_children(['public-key', 'secret-key'],
+                                       config:lookup([player, spiridon])),
+            JsonTerm =
+                [{<<"nym">>, Nym},
+                 {<<"public-key">>, base64:encode(PublicKey)},
+                 {<<"secret-key">>, base64:encode(SecretKey)}],
+            response(Socket, Request, {ok, {format, JsonTerm}});
         _ ->
 	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end.
