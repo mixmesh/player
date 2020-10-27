@@ -37,7 +37,9 @@ connect_now(PlayerServPid, NAddr, #player_sync_serv_options{
     {DstIP,DstPort} = NAddr,
     ?DSYNC("Connect: ~p naddr=~p\n", [SyncAddress, NAddr]),
     case gen_tcp:connect(DstIP, DstPort,
-                         [{active, false}, {port,SrcPort+1},
+                         [{active, false},
+			  {nodelay, true},
+			  {port,SrcPort+1},
 			  binary, {packet, 4}],
                          ConnectTimeout) of
         {ok, Socket} ->
@@ -66,12 +68,13 @@ connect_now(PlayerServPid, NAddr, #player_sync_serv_options{
                             ?error_log({connect, receive_message, Reason})
                     end;
                 {error, closed} ->
-                    ?error_log({connect, premature_socket_close});
+                    ?error_log({connect, send_messages, premature_socket_close});
                 {error, Reason} ->
                     ok = gen_tcp:close(Socket),
                     ?error_log({connect, send_messages, Reason})
             end;
-	    
+        {error, eaddrinuse} ->	    
+	    ok;
         {error, Reason} ->
 	    ?FSYNC("Connect fail ~p: ~p naddr:~p\n", 
 		   [Reason, SyncAddress, NAddr]),
