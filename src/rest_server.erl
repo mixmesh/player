@@ -8,12 +8,12 @@
 -module(rest_server).
 
 -include_lib("apptools/include/log.hrl").
--include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 
 -include_lib("rester/include/rester.hrl").
 -include_lib("rester/include/rester_socket.hrl").
 -include_lib("rester/include/rester_http.hrl").
+-include_lib("apptools/include/config_schema.hrl").
 
 -include_lib("pki/include/pki_serv.hrl").
 
@@ -302,23 +302,23 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
-        ["wipe"] ->
+        ["get-config"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _} ->
                     response(Socket, Request, {error, badarg});
                 JsonTerm ->
-                    response(Socket, Request, player_filter_post(JsonTerm))
+                    response(Socket, Request, get_config_post(JsonTerm))
+            end;
+        ["edit-config"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    response(Socket, Request, edit_config_post(JsonTerm))
             end;
 
-        ["player", "filter"] ->
-            case parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
-                JsonTerm ->
-                    response(Socket, Request, player_filter_post(JsonTerm))
-            end;
         ["key", "filter"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
@@ -363,51 +363,100 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-%% /dj/player/filter (POST)
+%% /dj/get-config (POST)
 
-player_filter_post(JsonTerm) ->
-    case extract_filter(
-           JsonTerm, [[<<"nym">>], [<<"public-key">>], [<<"secret-key">>]]) of
-        {ok, [FetchNym, FetchPublicKey, FetchSecretKey]} ->
-            config_value(
-              FetchNym,
-              fun() -> {<<"nym">>, config:lookup([player, nym])}  end) ++
-                config_value(
-                  FetchPublicKey,
-                  fun() ->
-                          PublicKey =
-                              config:lookup([player, spiridon, 'public-key']),
-                          {<<"public-key">>, base64:encode(PublicKey)}
-                  end) ++
-                config_value(
-                  FetchSecretKey,
-                  fun() ->
-                          SecretKey =
-                              config:lookup([player, spiridon, 'secret-key']),
-                          {<<"secret-key">>, base64:encode(SecretKey)}
-                  end);
-        invalid_filter ->
-            {error, badarg}
+get_config_post(Filter) ->
+    try
+        AppSchemas = obscrete_config_serv:get_schemas(),
+        {ok, {format, get_config(Filter, AppSchemas)}}
+    catch
+        throw:{invalid_filter, JsonPath} ->
+            {error, bad_request,
+             io_lib:format("Invalid filter path ~s",
+                           [config_serv:json_path_to_string(JsonPath)])}
     end.
 
-extract_filter(_JsonTerm, []) ->
-    [];
-extract_filter(JsonTerm, [Path|Rest]) ->
-    [filter_match(JsonTerm, Path)|extract_filter(JsonTerm, Rest)].
+get_config(Filter, AppSchemas) ->
+    get_config(Filter, AppSchemas, []).
 
-filter_match(_JsonTerm, []) ->
-    false;
-filter_match([{Name, Value}], [Name]) when is_boolean(Value) ->
-    Value;
-filter_match([{Name, JsonTerm}|_], [Name|Rest]) when is_list(JsonTerm) ->
-    filter_match(JsonTerm, Rest);
-filter_match(_JsonTerm, _Path) ->
-    false.
-
-config_value(false, _Do) ->
+get_config([], _AppShchemas, _JsonPath) ->
     [];
-config_value(true, Do) ->
-    [Do()].
+get_config([{Name, NestedFilter}|Rest], AppSchemas, JsonPath)
+  when is_list(NestedFilter) ->
+    [{Name, get_config(NestedFilter, AppSchemas, [?b2a(Name)|JsonPath])}|
+     get_config(Rest, AppSchemas, JsonPath)];
+get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
+    NewJsonPath = [?b2a(Name)|JsonPath],
+    case config:lookup(lists:reverse(NewJsonPath)) of
+        not_found ->
+            throw({invalid_filter, NewJsonPath});
+        Value when is_list(Value) ->
+            throw({invalid_filter, NewJsonPath});
+        Value ->
+            case get_config_type(AppSchemas, lists:reverse(NewJsonPath)) of
+                base64 ->
+                    [{Name, base64:encode(Value)}|
+                     get_config(Rest, AppSchemas, JsonPath)];
+                _ ->
+                    [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
+            end
+    end;
+get_config([{Name, _NotBoolean}|Rest], _AppSchemas, JsonPath) ->
+    throw({invalid_filter, [?b2a(Name)|JsonPath]});
+get_config(_ConfigFilter, _AppSchemas, JsonPath) ->
+    throw({invalid_filter, JsonPath}).
+
+get_config_type(AppSchemas, [Name|Rest] = JsonPath) ->
+    {value, {_, Schema}} = lists:keysearch(Name, 1, AppSchemas),
+    get_schema_type(Schema, JsonPath).
+
+get_schema_type([{Name, #json_type{name = TypeName}}|_], [Name]) ->
+    TypeName;
+get_schema_type([{Name, NestedSchema}|_], [Name|JsonPathRest]) ->
+    get_schema_type(NestedSchema, JsonPathRest);
+get_schema_type([_|SchemaRest], JsonPath) ->
+    get_schema_type(SchemaRest, JsonPath).
+
+%% /dj/edit-config (POST)
+
+edit_config_post(JsonTerm) ->
+    try
+        AppSchemas = obscrete_config_serv:get_schemas(),
+        {ok, {format, edit_config(config_serv:atomify(JsonTerm), AppSchemas)}}
+    catch
+        throw:Reason ->
+            {error, bad_request,
+             ?b2l(config_serv:format_error({config, Reason}))}
+    end.
+
+edit_config(JsonTerm, AppSchemas) ->
+    {App, FirstNameInJsonPath, Schema, RemainingAppSchemas} =
+        config_serv:lookup_schema(AppSchemas, JsonTerm),
+    case config_serv:validate(<<"/tmp">>, Schema, JsonTerm, true) of
+        {NewJsonTerm, []} ->
+            {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
+            MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
+            ok = application:set_env(App, FirstNameInJsonPath, MergedJsonTerm),
+            ?dbg_log({new_merged_config, MergedJsonTerm});
+        {NewJsonTerm, RemainingJsonTerm} ->
+            {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
+            MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
+            ?dbg_log({new_merged_config, MergedJsonTerm}),
+            edit_config(RemainingJsonTerm, RemainingAppSchemas)
+    end.
+
+edit_config_merge([], _NewJsonTerm) ->
+    [];
+edit_config_merge([{Name, OldValue}|OldJsonTerm],
+                  [{Name, NewValue}|NewJsonTerm])
+  when is_list(OldValue) ->
+    [{Name, edit_config_merge(OldValue, NewValue)}|
+     edit_config_merge(OldJsonTerm, NewJsonTerm)];
+edit_config_merge([{Name, _OldValue}|OldJsonTerm],
+                  [{Name, NewValue}|NewJsonTerm]) ->
+    [{Name, NewValue}|edit_config_merge(OldJsonTerm, NewJsonTerm)];
+edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
+    [{Name, OldValue}|edit_config_merge(OldJsonTerm, NewJsonTerm)].
 
 %% /dj/key/filter (POST)
 
