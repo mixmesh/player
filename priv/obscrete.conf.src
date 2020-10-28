@@ -1,0 +1,103 @@
+{
+    "system": {
+        "pin": @@PIN@@,
+        "pin-salt": @@PIN-SALT@@
+    },
+    "nodis": {
+        "ping-delay": 1000,
+        "ping-interval": 3000,
+	"max-pings-lost": 3,
+	"min-wait-time": 30000,
+	"min-down-time": 60000,
+	"max-up-nodes": 10,
+	"max-pending-nodes": 100,
+	"max-wait-nodes": 1000,
+	"max-down-nodes": 2000
+    },
+    "global-pki-server": {
+        "enabled": false,
+        "address": "0.0.0.0:11112",
+        "timeout": 30000,
+        "data-dir": "@@OBSCRETE-DIR@@/pki/data"
+    },
+    "player": {
+        "enabled": true,
+        "nym": @@NYM@@,
+        "pki-password": "baz",
+        "sync-address": @@SYNC-ADDRESS,
+        "temp-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/temp",
+        "buffer-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/buffer",
+        "spiridon": {
+            "f": 0.2,
+            "k": 10,
+            "public-key": @@PUBLIC-KEY@@,
+            "secret-key": @@SECRET-KEY@@
+        },
+        "maildrop": {
+            "spooler-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/maildrop/spooler"
+        },
+        "smtp-server": {
+            "address": @@SMTP-ADDRESS@@,
+            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
+            "password-digest": @@SMTP-PASSWORD-DIGEST@@
+        },
+        "pop3-server": {
+            "address": @@POP3-ADDRESS@@,
+            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
+            "password-digest": @@POP3-PASSWORD-DIGEST@@
+        },
+        "http-server": {
+            "address": @@HTTP-ADDRESS@@,
+            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
+            "password": @@HTTP-PASSWORD@@
+        },
+        "local-pki-server": {
+            "data-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/pki/data"
+        },
+        "pki-access-settings": {
+            "mode": "local",
+            "global": {
+                "access": "tcp-only",
+                "pki-server-tor-address": "z2rev4qfooicn3z3.onion:11112",
+                "pki-server-tcp-address": "127.0.0.1:11112"
+            }
+        }
+    },
+    "obscrete-control": {
+        "listen": "127.0.0.1:23313"
+    },
+    "logs": {
+        "daemon": {
+            "enabled": true,
+            "filter": {
+                "show": ["system", "warning", "error", "info"],
+                "hide": []
+            },
+            "tty": false,
+            "file": {
+                "enabled": true,
+                "path": "@@OBSCRETE-DIR@@/@@NYM@@/daemon.log"
+            }
+        },
+        "dbg": {
+            "enabled": false,
+            "filter": {
+                "show": [],
+                "hide": []
+            },
+            "tty": false,
+            "file": {
+                "enabled": true,
+                "path": "@@OBSCRETE-DIR@@/@@NYM@@/dbg.log"
+            }
+        },
+        "error": {
+            "enabled": true,
+            "tty": false,
+            "file": {
+                "enabled": true,
+                "path": "@@OBSCRETE-DIR@@/@@NYM@@"
+            }
+        }
+    }
+}

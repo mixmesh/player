@@ -302,6 +302,15 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
     end;
 handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
+        ["wipe"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    response(Socket, Request, {error, badarg});
+                JsonTerm ->
+                    response(Socket, Request, player_filter_post(JsonTerm))
+            end;
+
         ["player", "filter"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
