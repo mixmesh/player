@@ -8,6 +8,7 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
+-include_lib("elgamal/include/elgamal.hrl").
 -include("../include/player_buffer.hrl").
 
 -define(LARGEST_POSITIVE_INTEGER, trunc(math:pow(2, 28) / 2)).
@@ -28,13 +29,34 @@ new(Dir) ->
                 {ok, FileBuffer} ->
                     Buffer = ets:new(player_buffer, [ordered_set]),
                     true = ets:from_dets(Buffer, FileBuffer),
-                    {ok, {Buffer, FileBuffer}};
+                    BufferHandle = {Buffer, FileBuffer},
+                    ok = fill_buffer(BufferHandle),
+                    {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
             end;
         false ->
             {error, invalid_spooler_dir}
     end.
+
+%%
+%% NOTE: I just fill the buffer with at most (PLAYER_BUFFER_MAX_SIZE /
+%% 10) messages for now. Will change that when I have fixed the message
+%% swap exchange in player_sync_serv.erl. Now there will at least be a
+%% lot of messages.
+%%
+
+fill_buffer({Buffer, _FileBuffer} = BufferHandle) ->
+    BufferSize = ets:info(Buffer, size),
+    fill_buffer(BufferHandle, trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
+
+fill_buffer(_BuffersimHandle, N) when N < 0 ->
+    ok;
+fill_buffer(BufferHandle, N) ->
+    %% message-id is 8 bytes
+    Message = crypto:strong_rand_bytes(?ENCODED_SIZE + 8),
+    _ = push(BufferHandle, Message),
+    fill_buffer(BufferHandle, N - 1).
 
 %% Exported: push_many
 
