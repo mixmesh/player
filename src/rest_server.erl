@@ -110,20 +110,16 @@ handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
     case string:tokens(Url#url.path,"/") of
 	["versions"] ->
-	    Object = jsone:encode([v1,v2,dt,dj]),
+	    Object = jsone:encode([v1,dj,dt]),
 	    rester_http_server:response_r(Socket,Request,200, "OK",
 					  Object,
 					  [{content_type,"application/json"}]);
 	["v1" | Tokens] ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1);
-	["v2" | Tokens] ->
-	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v2);
-	["d1" | Tokens] ->
-	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d1);
-	["d2" | Tokens] ->
-	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, d2);
 	["dj" | Tokens] ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, dj);
+	["dt" | Tokens] ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, dt);
 	Tokens ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
@@ -853,8 +849,7 @@ format_reply(Data,Request) ->
     end.
 
 %%%-------------------------------------------------------------------
--spec format_reply_json(Term::term()) ->
-	  JsonReply::string().
+-spec format_reply_json(Term::term()) -> binary().
 
 format_reply_json(Term) ->
     jsone:encode(Term, [{space, 1}, {indent, 2}]).
@@ -868,7 +863,7 @@ format_reply_text(Data) when is_list(Data) ->
 format_reply_text(Data) ->
     io_lib:format("~p", [Data]).
 
--spec access(Socket::#rester_socket{}) -> Access::access().
+%%-spec access(Socket::#rester_socket{}) -> Access::access().
 
 access(Socket) ->
     case rester_socket:is_ssl(Socket) of
