@@ -409,12 +409,12 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                     [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
             end
     end;
-get_config([{Name, _NotBoolean}|Rest], _AppSchemas, JsonPath) ->
+get_config([{Name, _NotBoolean}|_Rest], _AppSchemas, JsonPath) ->
     throw({invalid_filter, [?b2a(Name)|JsonPath]});
 get_config(_ConfigFilter, _AppSchemas, JsonPath) ->
     throw({invalid_filter, JsonPath}).
 
-get_config_type(AppSchemas, [Name|Rest] = JsonPath) ->
+get_config_type(AppSchemas, [Name|_Rest] = JsonPath) ->
     {value, {_, Schema}} = lists:keysearch(Name, 1, AppSchemas),
     get_schema_type(Schema, JsonPath).
 
@@ -546,7 +546,19 @@ key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
 %% /dj/key/import (POST)
 
 key_import_post(PkiServPid, KeyBundle) when is_binary(KeyBundle) ->
-    key_import_post(PkiServPid, base64:decode(KeyBundle), []);
+    DecodedKeyBundle =
+        try
+            base64:decode(KeyBundle)
+        catch
+            _:_ ->
+                not_base64
+        end,
+    case DecodedKeyBundle of
+        not_base64 ->
+            {error, bad_request, "Invalid key bundle"};
+        _ ->
+            key_import_post(PkiServPid, DecodedKeyBundle, [])
+    end;
 key_import_post(_PkiServPid, _JsonTerm) ->
     {error, bad_request, "Invalid key bundle"}.
 
