@@ -21,6 +21,12 @@
 -export([start/4]).
 -export([start_link/4]).
 -export([handle_http_request/4]).
+-export([start_bootstrap_link/1]).
+-export([handle_bootstrap_http_request/4]).
+
+%% this puts a silencer on dialyzer
+-export([response/3, header_match/3, if_match/2, if_unmodified_since/2,
+         if_none_match/2, if_modified_since/2]).
 
 -define(IDLE_TIMEOUT, infinity). %% 60 * 1000).
 -define(SEND_TIMEOUT, infinity). %% default send timeout
@@ -74,6 +80,17 @@ do_start(Start, Nym, HttpPassword, HttpCertFilename, {IfAddr,Port}) ->
                         [Nym, inet:ntoa(IfAddr), Port]),
     rester_http_server:Start(Port, ResterHttpArgs).
 
+start_bootstrap_link(Port) ->
+    ResterHttpArgs =
+	[{request_handler,
+	  {?MODULE, handle_bootstrap_http_request, []}},
+	 {ifaddr, {0, 0, 0, 0}},
+	 {nodelay, true},
+	 {reuseaddr, true}],
+    ?daemon_log_tag_fmt(system, "Bootstrap REST server on 0.0.0.0::~w",
+                        [Port]),
+    rester_http_server:start(Port, ResterHttpArgs).
+
 handle_http_request(Socket, Request, Body, Options) ->
     ?dbg_log_fmt("request = ~s, headers=~s, body=~p",
 		[rester_http:format_request(Request),
@@ -99,6 +116,36 @@ handle_http_request_(Socket, Request, Body, Options) ->
 	_ ->
 	    response(Socket, Request, {error, not_allowed})
     end.
+
+handle_bootstrap_http_request(Socket, Request, Body, Options) ->
+    ?dbg_log_fmt("request = ~s, headers=~s, body=~p",
+                 [rester_http:format_request(Request),
+                  rester_http:format_hdr(Request#http_request.headers),
+		 Body]),
+    try handle_bootstrap_http_request_(Socket, Request, Body, Options) of
+	Result -> Result
+    catch
+	?EXCEPTION(error,Reason,_StackTrace) ->
+	    ?log_error("handle_bootstrap_http_request: crash reason=~p\n~p\n",
+		       [Reason, ?GET_STACK(_StackTrace)]),
+	    erlang:error(Reason)
+    end.
+
+handle_bootstrap_http_request_(Socket, Request, Body, Options) ->
+    case Request#http_request.method of
+%	'GET' ->
+%	    handle_bootstrap_http_get(Socket, Request, Body, Options);
+%	'PUT' ->
+%	    handle_bootstrap_http_put(Socket, Request, Body, Options);
+	'POST' ->
+	    handle_bootstrap_http_post(Socket, Request, Body, Options);
+	_ ->
+	    response(Socket, Request, {error, not_allowed})
+    end.
+
+%%%-------------------------------------------------------------------
+%%% Normal operation
+%%%-------------------------------------------------------------------
 
 %%
 %% Handle GET request
@@ -143,7 +190,8 @@ handle_http_get(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
 	    %% list public keys in a table
 	    Tab = ets:foldl(
 		    fun(#pki_user{nym=Name,public_key=Pk}, Acc) ->
-			    MD5 = crypto:hash(md5, belgamal:public_key_to_binary(Pk)),
+			    MD5 = crypto:hash(
+                                    md5, belgamal:public_key_to_binary(Pk)),
 			    Fs = [tl(integer_to_list(B+16#100,16)) ||
 				     <<B>> <= MD5],
 			    [{Name, Fs}|Acc]
@@ -242,7 +290,8 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request, key_put(PkiServPid, JsonTerm))
@@ -314,7 +363,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     response(Socket, Request, get_config_post(JsonTerm))
             end;
@@ -322,7 +372,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     response(Socket, Request, edit_config_post(JsonTerm))
             end;
@@ -331,7 +382,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -341,7 +393,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -351,7 +404,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -361,7 +415,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -584,6 +639,128 @@ update_public_keys(PkiServPid, [PublicKey|Rest]) ->
     end.
 
 %%%-------------------------------------------------------------------
+%%% Bootstraping
+%%%-------------------------------------------------------------------
+
+handle_bootstrap_http_post(Socket, Request, Body, Options) ->
+    Url = Request#http_request.uri,
+    case string:tokens(Url#url.path,"/") of
+	["dj" | Tokens] ->
+	    handle_bootstrap_http_post(Socket, Request, Options, Url, Tokens, Body, dj);
+	Tokens ->
+	    handle_bootstrap_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
+    end.
+
+handle_bootstrap_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
+    _Access = access(Socket),
+    _Data = parse_body(Request, Body),
+    case Tokens of
+	Tokens ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
+	    response(Socket, Request, {error, not_found})
+    end;
+handle_bootstrap_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
+    case Tokens of
+        ["system", "wipe"] ->
+            case parse_body(Request, Body,
+                            [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _Reason} ->
+                    response(Socket, Request,
+                             {error, bad_request, "Invalid JSON format"});
+                JsonTerm ->
+                    response(Socket, Request, system_wipe_post(JsonTerm))
+            end;
+	_ ->
+	    response(Socket, Request, {error, not_found})
+    end.
+
+%% /dj/system/wipe (POST)
+
+system_wipe_post(JsonTerm) ->
+    try
+        [Nym, SmtpPassword, Pop3Password, HttpPassword,
+         SyncAddress, SmtpAddress, Pop3Address, HttpAddress, ObscreteDir, Pin] =
+            parse_json_params(
+              JsonTerm,
+              [{<<"nym">>, fun erlang:is_binary/1},
+               {<<"smtp-password">>, fun erlang:is_binary/1},
+               {<<"pop3-password">>, fun erlang:is_binary/1},
+               {<<"http-password">>, fun erlang:is_binary/1},
+               {<<"sync-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:9900">>},
+               {<<"smtp-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:19900">>},
+               {<<"pop3-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:29900">>},
+               {<<"http-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:8444">>},
+               {<<"obscrete-dir">>, fun erlang:is_binary/1,
+                <<"/tmp/obscrete">>},
+               {<<"pin">>, fun erlang:is_binary/1, <<"123455">>}]),
+        PinSalt = player_crypto:pin_salt(),
+        case player_crypto:make_key_pair(?b2l(Pin), PinSalt, ?b2l(Nym)) of
+            {ok, PublicKey, EncryptedSecretKey} ->
+                SourceConfigFilename =
+                    filename:join(
+                      [code:priv_dir(player), <<"obscrete.conf.src">>]),
+                {ok, SourceConfig} = file:read_file(SourceConfigFilename),
+                EncodedPublicKey = base64:encode(PublicKey),
+                EncodedEncryptedSecretKey = base64:encode(EncryptedSecretKey),
+                EncodedPinSalt = base64:encode(PinSalt),
+                TargetConfig =
+                    update_config(
+                      SourceConfig,
+                      [{<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
+                       {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
+                       {<<"@@NYM@@">>, Nym},
+                       {<<"@@SMTP-PASSWORD-DIGEST@@">>,
+                        base64:encode(
+                          player_crypto:digest_password(SmtpPassword))},
+                       {<<"@@POP3-PASSWORD-DIGEST@@">>,
+                        base64:encode(
+                          player_crypto:digest_password(Pop3Password))},
+                       {<<"@@HTTP-PASSWORD@@">>, HttpPassword},
+                       {<<"@@SYNC-ADDRESS@@">>, SyncAddress},
+                       {<<"@@SMTP-ADDRESS@@">>, SmtpAddress},
+                       {<<"@@POP3-ADDRESS@@">>, Pop3Address},
+                       {<<"@@HTTP-ADDRESS@@">>, SyncAddress},
+                       {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
+                       {<<"@@PIN@@">>, Pin},
+                       {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
+                TargetConfigFilename =
+                    filename:join([ObscreteDir, <<"obscrete.conf">>]),
+                case file:write_file(TargetConfigFilename, TargetConfig) of
+                    ok ->
+                        {ok, {format, [{<<"public-key">>, EncodedPublicKey},
+                                       {<<"secret-key">>,
+                                        EncodedEncryptedSecretKey},
+                                       {<<"sync-address">>, SyncAddress},
+                                       {<<"smtp-address">>, SmtpAddress},
+                                       {<<"pop3-address">>, Pop3Address},
+                                       {<<"http-address">>, HttpAddress},
+                                       {<<"obscrete-dir">>, ObscreteDir},
+                                       {<<"pin">>, Pin},
+                                       {<<"pin-salt">>, EncodedPinSalt}]}};
+                    {error, _Reason} ->
+                        throw({error,
+                               io_lib:format(
+                                 "~s: Could not be created",
+                                 [TargetConfigFilename])})
+                end;
+            {error, Reason} ->
+                throw({error, Reason})
+        end
+    catch
+        throw:{error, ThrowReason} ->
+            {error, bad_request, ThrowReason}
+    end.
+
+update_config(Config, []) ->
+    Config;
+update_config(Config, [{Pattern, Replacement}|Rest]) ->
+    update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
+
+%%%-------------------------------------------------------------------
 %%% Parsing
 %%%-------------------------------------------------------------------
 
@@ -672,6 +849,42 @@ parse_data(List) when is_list(List) ->
 		    List
 	    end
     end.
+
+parse_json_params(JsonTerm, Params) ->
+    parse_json_params(JsonTerm, Params, []).
+
+parse_json_params([], [], Acc) ->
+    lists:reverse(Acc);
+parse_json_params([{Name, _Value}|_], [], _Acc) ->
+    throw({error, io_lib:format("~s not expected", [Name])});
+parse_json_params(_JsonTerm, [], _Acc) ->
+    throw({error, "Invalid parameters"});
+parse_json_params(JsonTerm, [{Name, CheckType}|Rest], Acc) ->
+    case lists:keytake(Name, 1, JsonTerm) of
+        {value, {_, Value}, RemainingJsonTerm} ->
+            case CheckType(Value) of
+                true ->
+                    parse_json_params(RemainingJsonTerm, Rest, [Value|Acc]);
+                false ->
+                    throw({error, io_lib:format("~s has bad type", [Name])})
+            end;
+        false ->
+            throw({error, io_lib:format("~s is missing", [Name])})
+    end;
+parse_json_params(JsonTerm, [{Name, CheckType, DefaultValue}|Rest], Acc) ->
+    case lists:keytake(Name, 1, JsonTerm) of
+        {value, {_, Value}, RemainingJsonTerm} ->
+            case CheckType(Value) of
+                true ->
+                    parse_json_params(RemainingJsonTerm, Rest, [Value|Acc]);
+                false ->
+                    throw({error, io_lib:format("~s has bad type", [Name])})
+            end;
+        false ->
+            parse_json_params(JsonTerm, Rest, [DefaultValue|Acc])
+    end;
+parse_json_params(_JsonTerm, _Params, _Acc) ->
+    throw({error, "Invalid parameters"}).
 
 %%%-------------------------------------------------------------------
 %% Check conditional headers (KEEP THEM!!!)
