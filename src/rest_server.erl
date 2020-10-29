@@ -242,7 +242,7 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                    response(Socket, Request, {error, bad_request, "Invalid JSON"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request, key_put(PkiServPid, JsonTerm))
@@ -254,18 +254,30 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 %% dj/key (PUT)
 
 key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
-    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-    case local_pki_serv:update(PkiServPid, PublicKey) of
-        ok ->
-            ok_204;
-        {error, no_such_key} ->
-            ok = local_pki_serv:create(PkiServPid, PublicKey),
-            ok_204;
-        {error, permission_denied} ->
-            {error, no_access}
+    DecodedPublicKeyBin =
+        try
+            base64:decode(PublicKeyBin)
+        catch
+            _:_ ->
+                not_base64
+        end,
+    case DecodedPublicKeyBin of
+        not_base64 ->
+            {error, bad_request, "Invalid Base64 encoding"};
+        _ ->
+            PublicKey = elgamal:binary_to_public_key(DecodedPublicKeyBin),
+            case local_pki_serv:update(PkiServPid, PublicKey) of
+                ok ->
+                    {ok, "Key has been updated"};
+                {error, no_such_key} ->
+                    ok = local_pki_serv:create(PkiServPid, PublicKey),
+                    {ok, "Key has been added"};
+                {error, permission_denied} ->
+                    {error, no_access}
+            end
     end;
 key_put(_PkiServPid, _JsonTerm) ->
-    {error, badarg}.
+    {error, bad_request, "Key is invalid"}.
 
 %% General POST request uri:
 %% - [/vi]/item
@@ -301,16 +313,16 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["get-config"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     response(Socket, Request, get_config_post(JsonTerm))
             end;
         ["edit-config"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     response(Socket, Request, edit_config_post(JsonTerm))
             end;
@@ -318,8 +330,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["key", "filter"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -328,8 +340,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["key", "delete"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -338,8 +350,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["key", "export"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -348,8 +360,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["key", "import"] ->
             case parse_body(Request, Body,
                             [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    response(Socket, Request, {error, badarg});
+                {error, _Reason} ->
+                    response(Socket, Request, {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     response(Socket, Request,
@@ -418,7 +430,7 @@ get_schema_type([_|SchemaRest], JsonPath) ->
 edit_config_post(JsonTerm) ->
     try
         AppSchemas = obscrete_config_serv:get_schemas(),
-        {ok, {format, edit_config(config_serv:atomify(JsonTerm), AppSchemas)}}
+        edit_config(config_serv:atomify(JsonTerm), AppSchemas)
     catch
         throw:Reason ->
             {error, bad_request,
@@ -433,7 +445,8 @@ edit_config(JsonTerm, AppSchemas) ->
             {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
             MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
             ok = application:set_env(App, FirstNameInJsonPath, MergedJsonTerm),
-            ?dbg_log({new_merged_config, MergedJsonTerm});
+            ?dbg_log({new_merged_config, MergedJsonTerm}),
+            ok;
         {NewJsonTerm, RemainingJsonTerm} ->
             {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
             MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
@@ -476,14 +489,14 @@ key_filter_post(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
         local_pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
     key_filter_post(PkiServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
 key_filter_post(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
-    {error, badarg}.
+    {error, bad_request, "Invalid filter"}.
 
 %% /dj/key/delete (POST)
 
 key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
     key_delete_post(PkiServPid, Nyms, []);
 key_delete_post(_PkiServPid, _JsonTerm) ->
-    {error, badarg}.
+    {error, bad_request, "Invalid nym"}.
 
 key_delete_post(_PkiServPid, [], Failures) ->
     JsonTerm =
@@ -528,14 +541,14 @@ key_export_post(PkiServPid, [Nym|Rest], PublicKeys)
             key_export_post(PkiServPid, Rest, PublicKeys)
     end;
 key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
-    {error, badarg}.
+    {error, bad_request, "Invalid list of nyms"}.
 
 %% /dj/key/import (POST)
 
 key_import_post(PkiServPid, KeyBundle) when is_binary(KeyBundle) ->
     key_import_post(PkiServPid, base64:decode(KeyBundle), []);
 key_import_post(_PkiServPid, _JsonTerm) ->
-    {error, badarg}.
+    {error, bad_request, "Invalid key bundle"}.
 
 key_import_post(PkiServPid, <<>>, PublicKeys) ->
     update_public_keys(PkiServPid, PublicKeys);
@@ -546,7 +559,7 @@ key_import_post(PkiServPid,
     PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
     key_import_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
 key_import_post(_PkiServPid, _KeyBundle, _PublicKeys) ->
-    {error, badarg}.
+    {error, bad_request, "Invalid key bundle"}.
 
 update_public_keys(_PkiServPid, []) ->
     ok_204;
@@ -596,7 +609,6 @@ try_parse_body(Request, Body, Options) ->
     catch
         error:Reason -> {error, Reason}
     end.
-
 
 parse_data(Request, Body, Options) when is_binary(Body)->
     parse_data(Request, binary_to_list(Body), Options);
