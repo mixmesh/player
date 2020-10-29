@@ -107,8 +107,8 @@ init(normal) ->
                     [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
     RestServerSpec =
-	#{id => rest_server,
-          start => {rest_server, start_link,
+	#{id => rest_normal_server,
+          start => {rest_normal_server, start_link,
                     [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
 %% now always start one nodis_serv (but may be a dummy if sumulation)
 %%    NodisServSpec =
@@ -174,8 +174,8 @@ init(#simulated_player_serv_config{
                     [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
                      Pop3Address]}},
     RestServerSpec =
-	#{id => rest_server,
-          start => {rest_server, start_link,
+	#{id => rest_normal_server,
+          start => {rest_normal_server, start_link,
                     [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
     {_SyncIp,SyncPort} = SyncAddress,
     NodisServSpec =
