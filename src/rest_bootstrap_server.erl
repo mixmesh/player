@@ -2,10 +2,6 @@
 -export([start_link/1]).
 -export([handle_http_request/4]).
 
-
-
--compile(export_all).
-
 -include_lib("apptools/include/log.hrl").
 -include_lib("rester/include/rester.hrl").
 -include_lib("apptools/include/shorthand.hrl").
@@ -308,19 +304,18 @@ system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
 system_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-
 %% TEST
 
-clear(EncodedPublicKey, EncodedSecretKey) ->
-    {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-     elgamal:binary_to_secret_key(base64:decode(EncodedSecretKey))}.
+%% clear(EncodedPublicKey, EncodedSecretKey) ->
+%%     {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
+%%      elgamal:binary_to_secret_key(base64:decode(EncodedSecretKey))}.
 
 
-cipher(EncodedPublicKey, Pin, EncodedPinSalt, EncodedEncryptedSecretKey) ->
-    DecodedPinSalt = base64:decode(EncodedPinSalt),
-    SharedKey = player_crypto:pin_to_shared_key(Pin, DecodedPinSalt),
-    DecodedEncryptedSecretKey = base64:decode(EncodedEncryptedSecretKey),
-    {ok, DecryptedSecretKey} =
-        player_crypto:shared_decrypt(SharedKey, DecodedEncryptedSecretKey),
-    {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-     elgamal:binary_to_secret_key(DecryptedSecretKey)}.
+%% cipher(EncodedPublicKey, Pin, EncodedPinSalt, EncodedEncryptedSecretKey) ->
+%%     DecodedPinSalt = base64:decode(EncodedPinSalt),
+%%     SharedKey = player_crypto:pin_to_shared_key(Pin, DecodedPinSalt),
+%%     DecodedEncryptedSecretKey = base64:decode(EncodedEncryptedSecretKey),
+%%     {ok, DecryptedSecretKey} =
+%%         player_crypto:shared_decrypt(SharedKey, DecodedEncryptedSecretKey),
+%%     {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
+%%      elgamal:binary_to_secret_key(DecryptedSecretKey)}.
