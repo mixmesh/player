@@ -441,6 +441,7 @@ edit_config(JsonTerm, AppSchemas) ->
         {NewJsonTerm, RemainingJsonTerm} ->
             {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
             MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
+            ok = application:set_env(App, FirstNameInJsonPath, MergedJsonTerm),
             ?dbg_log({new_merged_config, MergedJsonTerm}),
             edit_config(RemainingJsonTerm, RemainingAppSchemas)
     end.
