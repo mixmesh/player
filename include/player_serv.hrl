@@ -24,7 +24,8 @@
          pick_mode = not_set :: player_serv:pick_mode() | not_set}).
 
 -record(simulated_player_serv_config,
-        {nym :: binary(),
+        {obscrete_dir :: binary(),
+         nym :: binary(),
          pki_password :: binary(),
          sync_address :: {inet:ip_address(), inet:port_number()},
          temp_dir :: binary(),
@@ -43,7 +44,6 @@
          http_address :: {inet:ip4_address(), inet:port_number()},
          http_cert_filename :: binary(),
          http_password :: binary(),
-         local_pki_server_data_dir :: binary(),
          pki_mode :: local | {global, pki_network_client:pki_access()}}).
 
 -endif.

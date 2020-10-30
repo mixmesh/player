@@ -32,8 +32,9 @@ start_link(Config) ->
 %% Exported: init
 
 init(normal) ->
-    [Pin, PinSalt] =
-        config:lookup_children([pin, 'pin-salt'], config:lookup([system])),
+    [ObscreteDir, Pin, PinSalt] =
+        config:lookup_children(['obscrete-dir', pin, 'pin-salt'],
+                               config:lookup([system])),
     [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
      Maildrop, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
@@ -45,7 +46,7 @@ init(normal) ->
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
     SharedKey = player_crypto:pin_to_shared_key(Pin, PinSalt),
     {ok, DecryptedSecretKey} =
-        player_crypto:decrypt_secret_key(SharedKey, EncryptedSecretKey),
+        player_crypto:shared_decrypt(SharedKey, EncryptedSecretKey),
     SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
     Keys = {PublicKey, SecretKey},
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
@@ -58,8 +59,6 @@ init(normal) ->
     [HttpAddress, HttpCertFilename, HttpPassword] =
         config:lookup_children([address, 'cert-filename', password],
                                HttpServer),
-    LocalPkiServerDataDir =
-        config:lookup([player, 'local-pki-server', 'data-dir']),
     PkiMode =
         case config:lookup([player, 'pki-access-settings', mode]) of
             local ->
@@ -116,7 +115,7 @@ init(normal) ->
 %%          start => {nodis_serv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
-          start => {local_pki_serv, start_link, [LocalPkiServerDataDir]}},
+          start => {local_pki_serv, start_link, [ObscreteDir, Nym]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,
@@ -127,6 +126,7 @@ init(normal) ->
                                        %% NodisServSpec,
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
+        obscrete_dir = ObscreteDir,
         nym = Nym,
         pki_password = PkiPassword,
         sync_address = SyncAddress,
@@ -146,7 +146,6 @@ init(#simulated_player_serv_config{
         http_address = HttpAddress,
         http_cert_filename = HttpCertFilename,
         http_password = HttpPassword,
-        local_pki_server_data_dir = LocalPkiServerDataDir,
         pki_mode = PkiMode}) ->
     PlayerServSpec =
         #{id => player_serv,
@@ -187,7 +186,7 @@ init(#simulated_player_serv_config{
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {local_pki_serv, start_link,
-                    [LocalPkiServerDataDir]}},
+                    [ObscreteDir, Nym]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MailServSpec,

@@ -1,7 +1,8 @@
 {
     "system": {
-        "pin": @@PIN@@,
-        "pin-salt": @@PIN-SALT@@
+        "obscrete-dir": "@@OBSCRETE-DIR@@",
+        "pin": "@@PIN@@",
+        "pin-salt": "@@PIN-SALT@@"
     },
     "nodis": {
         "ping-delay": 1000,
@@ -22,37 +23,34 @@
     },
     "player": {
         "enabled": true,
-        "nym": @@NYM@@,
+        "nym": "@@NYM@@",
         "pki-password": "baz",
-        "sync-address": @@SYNC-ADDRESS,
+        "sync-address": "@@SYNC-ADDRESS@@",
         "temp-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/temp",
         "buffer-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/buffer",
         "spiridon": {
             "f": 0.2,
             "k": 10,
-            "public-key": @@PUBLIC-KEY@@,
-            "secret-key": @@SECRET-KEY@@
+            "public-key": "@@PUBLIC-KEY@@",
+            "secret-key": "@@SECRET-KEY@@"
         },
         "maildrop": {
             "spooler-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/maildrop/spooler"
         },
         "smtp-server": {
-            "address": @@SMTP-ADDRESS@@,
+            "address": "@@SMTP-ADDRESS@@",
             "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
-            "password-digest": @@SMTP-PASSWORD-DIGEST@@
+            "password-digest": "@@SMTP-PASSWORD-DIGEST@@"
         },
         "pop3-server": {
-            "address": @@POP3-ADDRESS@@,
+            "address": "@@POP3-ADDRESS@@",
             "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
-            "password-digest": @@POP3-PASSWORD-DIGEST@@
+            "password-digest": "@@POP3-PASSWORD-DIGEST@@"
         },
         "http-server": {
-            "address": @@HTTP-ADDRESS@@,
+            "address": "@@HTTP-ADDRESS@@",
             "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
-            "password": @@HTTP-PASSWORD@@
-        },
-        "local-pki-server": {
-            "data-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/pki/data"
+            "password": "@@HTTP-PASSWORD@@"
         },
         "pki-access-settings": {
             "mode": "local",

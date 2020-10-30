@@ -111,12 +111,6 @@ get() ->
              name = string,  %% db password
              typical = <<"password">>,
              reloadable = false}}]},
-       {'local-pki-server',
-        [{'data-dir',
-          #json_type{
-             name = writable_directory,
-             typical = <<"/var/obscrete/players/johndoe/pki/data">>,
-             reloadable = false}}]},
        {'pki-access-settings',
         [{mode,
           #json_type{

@@ -1,7 +1,6 @@
 -module(rest_normal_server).
--export([start_link/4]).
+-export([start_link/4, parse_key_bundle/1]).
 -export([handle_http_request/4]).
-
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("rester/include/rester.hrl").
@@ -226,18 +225,17 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 %% dj/key (PUT)
 
 key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
-    DecodedPublicKeyBin =
+    PublicKey =
         try
-            base64:decode(PublicKeyBin)
+            elgamal:binary_to_public_key(base64:decode(PublicKeyBin))
         catch
             _:_ ->
-                not_base64
+                bad_format
         end,
-    case DecodedPublicKeyBin of
-        not_base64 ->
-            {error, bad_request, "Invalid Base64 encoding"};
+    case PublicKey of
+        bad_format ->
+            {error, bad_request, "Invalid public key"};
         _ ->
-            PublicKey = elgamal:binary_to_public_key(DecodedPublicKeyBin),
             case local_pki_serv:update(PkiServPid, PublicKey) of
                 ok ->
                     {ok, "Key has been updated"};
@@ -373,16 +371,31 @@ get_config([{Name, NestedFilter}|Rest], AppSchemas, JsonPath)
      get_config(Rest, AppSchemas, JsonPath)];
 get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
     NewJsonPath = [?b2a(Name)|JsonPath],
-    case config:lookup(lists:reverse(NewJsonPath)) of
+    RealJsonPath = lists:reverse(NewJsonPath),
+    case config:lookup(RealJsonPath) of
         not_found ->
             throw({invalid_filter, NewJsonPath});
         Value when is_list(Value) ->
             throw({invalid_filter, NewJsonPath});
         Value ->
-            case get_config_type(AppSchemas, lists:reverse(NewJsonPath)) of
+            case get_config_type(AppSchemas, RealJsonPath) of
                 base64 ->
-                    [{Name, base64:encode(Value)}|
-                     get_config(Rest, AppSchemas, JsonPath)];
+                    case RealJsonPath of
+                        [player, spiridon, 'secret-key'] ->
+                            Pin = config:lookup([system, pin]),
+                            PinSalt = config:lookup([system, 'pin-salt']),
+                            SharedKey =
+                                player_crypto:generate_shared_key(Pin, PinSalt),
+                            {ok, DecryptedSecretKey} =
+                                player_crypto:shared_decrypt(SharedKey, Value),
+                            EncodedDecryptedSecretKey =
+                                base64:encode(DecryptedSecretKey),
+                            [{Name, EncodedDecryptedSecretKey}|
+                             get_config(Rest, AppSchemas, JsonPath)];
+                        _ ->
+                            [{Name, base64:encode(Value)}|
+                             get_config(Rest, AppSchemas, JsonPath)]
+                    end;
                 _ ->
                     [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
             end
@@ -546,8 +559,19 @@ key_import_post(PkiServPid,
                 <<PublicKeyBinSize:16/unsigned-integer,
                   PublicKeyBin:PublicKeyBinSize/binary,
                   Rest/binary>>, PublicKeys) ->
-    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-    key_import_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+    PublicKey =
+        try
+            elgamal:binary_to_public_key(PublicKeyBin)
+        catch 
+            _:_ ->
+                bad_key
+        end,
+    case PublicKey of
+        bad_key ->
+            {error, bad_request, "Invalid key bundle"};
+        _ ->
+            key_import_post(PkiServPid, Rest, [PublicKey|PublicKeys])
+    end;
 key_import_post(_PkiServPid, _KeyBundle, _PublicKeys) ->
     {error, bad_request, "Invalid key bundle"}.
 
@@ -560,3 +584,21 @@ update_public_keys(PkiServPid, [PublicKey|Rest]) ->
         {error, permission_denied} ->
             {error, no_access}
     end.
+
+%% Exported: parse_key_bundle
+
+parse_key_bundle(KeyBundle) ->
+    try
+        parse_key_bundle(KeyBundle, [])
+    catch
+        _:_ ->
+            bad_format
+    end.
+
+parse_key_bundle(<<>>, Acc) ->
+    Acc;
+parse_key_bundle(<<PublicKeyBinSize:16/unsigned-integer,
+                   PublicKeyBin:PublicKeyBinSize/binary,
+                   Rest/binary>>, Acc) ->
+    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
+    parse_key_bundle(Rest, [PublicKey|Acc]).

@@ -7,6 +7,7 @@
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("rester/include/rester_http.hrl").
 -include_lib("rester/include/rester_socket.hrl").
+-include_lib("elgamal/include/elgamal.hrl").
 
 %% Exported: start_link
 
@@ -70,9 +71,29 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                    [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
                     rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request, system_wipe_post(JsonTerm))
+            end;
+        ["system", "reinstall"] ->
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _Reason} ->
+                    rest_util:response(Socket, Request,
+                                       {error, bad_request, "Invalid JSON format"});
+                JsonTerm ->
+                    rest_util:response(Socket, Request, system_reinstall_post(JsonTerm))
+            end;
+        ["system", "restart"] ->
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _Reason} ->
+                    rest_util:response(Socket, Request,
+                                       {error, bad_request, "Invalid JSON format"});
+                JsonTerm ->
+                    rest_util:response(Socket, Request, system_restart_post(JsonTerm))
             end;
 	_ ->
 	    rest_util:response(Socket, Request, {error, not_found})
@@ -100,7 +121,7 @@ system_wipe_post(JsonTerm) ->
                 <<"0.0.0.0:8444">>},
                {<<"obscrete-dir">>, fun erlang:is_binary/1,
                 <<"/tmp/obscrete">>},
-               {<<"pin">>, fun erlang:is_binary/1, <<"123455">>}]),
+               {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
         PinSalt = player_crypto:pin_salt(),
         case player_crypto:make_key_pair(?b2l(Pin), PinSalt, ?b2l(Nym)) of
             {ok, PublicKey, EncryptedSecretKey} ->
@@ -127,7 +148,7 @@ system_wipe_post(JsonTerm) ->
                        {<<"@@SYNC-ADDRESS@@">>, SyncAddress},
                        {<<"@@SMTP-ADDRESS@@">>, SmtpAddress},
                        {<<"@@POP3-ADDRESS@@">>, Pop3Address},
-                       {<<"@@HTTP-ADDRESS@@">>, SyncAddress},
+                       {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
                        {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
                        {<<"@@PIN@@">>, Pin},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
@@ -163,3 +184,122 @@ update_config(Config, []) ->
     Config;
 update_config(Config, [{Pattern, Replacement}|Rest]) ->
     update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
+
+%% /dj/system/reinstall (POST)
+
+system_reinstall_post(JsonTerm) ->
+    try
+        [EncodedPublicKey, EncodedSecretKey, EncodedKeyBundle, SmtpPassword,
+         Pop3Password, HttpPassword, SyncAddress, SmtpAddress, Pop3Address,
+         HttpAddress, ObscreteDir, Pin] =
+            rest_util:parse_json_params(
+              JsonTerm,
+              [{<<"public-key">>, fun erlang:is_binary/1},
+               {<<"secret-key">>, fun erlang:is_binary/1},
+               {<<"key-bundle">>, fun erlang:is_binary/1,
+                none},
+               {<<"smtp-password">>, fun erlang:is_binary/1},
+               {<<"pop3-password">>, fun erlang:is_binary/1},
+               {<<"http-password">>, fun erlang:is_binary/1},
+               {<<"sync-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:9900">>},
+               {<<"smtp-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:19900">>},
+               {<<"pop3-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:29900">>},
+               {<<"http-address">>, fun erlang:is_binary/1,
+                <<"0.0.0.0:8444">>},
+               {<<"obscrete-dir">>, fun erlang:is_binary/1,
+                <<"/tmp/obscrete">>},
+               {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
+        UnpackedKeys =
+            try
+                PublicKeyBin = base64:decode(EncodedPublicKey),
+                PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
+                {PublicKey#pk.nym, base64:decode(EncodedSecretKey),
+                 base64:decode(EncodedKeyBundle)}
+            catch
+                _:_ ->
+                    bad_keys
+            end,
+        case UnpackedKeys of
+            bad_keys ->
+                throw({error, "Invalid keys"});
+            {Nym, DecodedSecretKey, DecodedKeyBundle} ->
+                PinSalt = player_crypto:pin_salt(),
+                SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
+                {ok, EncryptedSecretKey} =
+                    player_crypto:shared_encrypt(SharedKey, DecodedSecretKey),
+                SourceConfigFilename =
+                    filename:join(
+                      [code:priv_dir(player), <<"obscrete.conf.src">>]),
+                {ok, SourceConfig} = file:read_file(SourceConfigFilename),
+                EncodedEncryptedSecretKey = base64:encode(EncryptedSecretKey),
+                EncodedPinSalt = base64:encode(PinSalt),
+                TargetConfig =
+                    update_config(
+                      SourceConfig,
+                      [{<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
+                       {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
+                       {<<"@@NYM@@">>, Nym},
+                       {<<"@@SMTP-PASSWORD-DIGEST@@">>,
+                        base64:encode(
+                          player_crypto:digest_password(SmtpPassword))},
+                       {<<"@@POP3-PASSWORD-DIGEST@@">>,
+                        base64:encode(
+                          player_crypto:digest_password(Pop3Password))},
+                       {<<"@@HTTP-PASSWORD@@">>, HttpPassword},
+                       {<<"@@SYNC-ADDRESS@@">>, SyncAddress},
+                       {<<"@@SMTP-ADDRESS@@">>, SmtpAddress},
+                       {<<"@@POP3-ADDRESS@@">>, Pop3Address},
+                       {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
+                       {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
+                       {<<"@@PIN@@">>, Pin},
+                       {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
+                TargetConfigFilename =
+                    filename:join([ObscreteDir, <<"obscrete.conf">>]),
+                case file:write_file(TargetConfigFilename, TargetConfig) of
+                    ok ->                        
+                        ok = import_key_bundle(ObscreteDir, Pin, Nym, PinSalt,
+                                               DecodedKeyBundle),   
+                        {ok, {format, [{<<"nym">>, Nym},
+                                       {<<"sync-address">>, SyncAddress},
+                                       {<<"smtp-address">>, SmtpAddress},
+                                       {<<"pop3-address">>, Pop3Address},
+                                       {<<"http-address">>, HttpAddress},
+                                       {<<"obscrete-dir">>, ObscreteDir},
+                                       {<<"pin">>, Pin},
+                                       {<<"pin-salt">>, EncodedPinSalt}]}};
+                    {error, _Reason} ->
+                        throw({error,
+                               io_lib:format(
+                                 "~s: Could not be created",
+                                 [TargetConfigFilename])})
+                end
+        end
+    catch
+        throw:{error, ThrowReason} ->
+            {error, bad_request, ThrowReason}
+    end.
+
+import_key_bundle(ObscreteDir, Pin, Nym, PinSalt, KeyBundle) ->
+    case rest_normal_server:parse_key_bundle(KeyBundle) of
+        bad_format ->
+            throw({error, "Invalid key bundle"});
+        PublicKeys ->
+            case local_pki_serv:import_public_keys(
+                   ObscreteDir, Pin, Nym, PinSalt, PublicKeys) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    throw({error, local_pki_serv:strerror(Reason)})
+            end
+    end.
+
+%% /dj/system/restart (POST)
+
+system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
+    timer:apply_after(Time * 1000, erlang, halt, [0]),
+    {ok, "Yes, sir!"};
+system_restart_post(_Time) ->
+    {error, bad_request, "Invalid time"}.
