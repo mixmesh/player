@@ -142,10 +142,11 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
             [PublicKey, SecretKey] =
                 config:lookup_children(['public-key', 'secret-key'],
                                        config:lookup([player, spiridon])),
+            {ok, DecryptedSecretKey} = shared_decrypt_secret_key(SecretKey),
             JsonTerm =
                 [{<<"nym">>, Nym},
                  {<<"public-key">>, base64:encode(PublicKey)},
-                 {<<"secret-key">>, base64:encode(SecretKey)}],
+                 {<<"secret-key">>, base64:encode(DecryptedSecretKey)}],
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key"] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),
@@ -382,22 +383,15 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                 base64 ->
                     case RealJsonPath of
                         [player, spiridon, 'secret-key'] ->
-                            Pin = config:lookup([system, pin]),
-                            PinSalt = config:lookup([system, 'pin-salt']),
-                            SharedKey =
-                                player_crypto:generate_shared_key(Pin, PinSalt),
-                            {ok, DecryptedSecretKey} =
-                                player_crypto:shared_decrypt(SharedKey, Value),
-                            EncodedDecryptedSecretKey =
-                                base64:encode(DecryptedSecretKey),
-                            [{Name, EncodedDecryptedSecretKey}|
+                            {ok, DecryptedSecretKey} = shared_decrypt_secret_key(Value),
+                            [{Name, base64:encode(DecryptedSecretKey)}|
                              get_config(Rest, AppSchemas, JsonPath)];
                         _ ->
                             [{Name, base64:encode(Value)}|
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
                 _ ->
-                    [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
+                    [{Name, Value}|get_config(Rest, AppSchemas, RealJsonPath)]
             end
     end;
 get_config([{Name, _NotBoolean}|_Rest], _AppSchemas, JsonPath) ->
@@ -415,6 +409,12 @@ get_schema_type([{Name, NestedSchema}|_], [Name|JsonPathRest]) ->
     get_schema_type(NestedSchema, JsonPathRest);
 get_schema_type([_|SchemaRest], JsonPath) ->
     get_schema_type(SchemaRest, JsonPath).
+
+shared_decrypt_secret_key(DecodedSecretKey) ->
+    Pin = config:lookup([system, pin]),
+    PinSalt = config:lookup([system, 'pin-salt']),
+    SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
+    player_crypto:shared_decrypt(SharedKey, DecodedSecretKey).
 
 %% /dj/edit-config (POST)
 
@@ -562,7 +562,7 @@ key_import_post(PkiServPid,
     PublicKey =
         try
             elgamal:binary_to_public_key(PublicKeyBin)
-        catch 
+        catch
             _:_ ->
                 bad_key
         end,
