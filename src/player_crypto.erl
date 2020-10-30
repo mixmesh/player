@@ -26,7 +26,7 @@ check_digested_password(Password, <<Salt:32/binary, DigestPassword/binary>>) ->
 %% Exported: make_key_pair
 
 -spec make_key_pair(string(), binary(), string()) ->
-          {ok, binary(), binary()} | {error, string()}.
+          {ok, binary(), binary(), binary()} | {error, string()}.
 
 make_key_pair(Pin, PinSalt, Nym) ->
     case {length(Pin), lists:all(fun(C) -> C >= $0 andalso C =< $9 end, Pin)} of
@@ -45,7 +45,7 @@ make_key_pair(Pin, PinSalt, Nym) ->
             SecretKeyBin = elgamal:secret_key_to_binary(SecretKey),
             Nonce = enacl:randombytes(enacl:secretbox_NONCEBYTES()),
             EncryptedSecretKey = enacl:secretbox(SecretKeyBin, Nonce, SharedKey),
-            {ok, PublicKeyBin, <<Nonce/binary, EncryptedSecretKey/binary>>}
+            {ok, PublicKeyBin, SecretKeyBin, <<Nonce/binary, EncryptedSecretKey/binary>>}
     end.
 
 %% Exported: generate_shared_key

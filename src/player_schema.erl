@@ -69,11 +69,6 @@ get() ->
              name = ipv4address_port,
              typical = {{242,45,0,34}, 20000},
              reloadable = false}},
-         {'cert-filename',
-          #json_type{
-             name = readable_file,
-             typical = <<"/tmp/cert.pem">>,
-             reloadable = false}},
          {'password-digest',
           #json_type{
               name = base64,
@@ -85,11 +80,6 @@ get() ->
              name = ipv4address_port,
              typical = {{242,45,0,34}, 30000},
              reloadable = false}},
-         {'cert-filename',
-          #json_type{
-             name = readable_file,
-             typical = <<"/tmp/cert.pem">>,
-             reloadable = false}},
          {'password-digest',
           #json_type{
              name = base64,
@@ -100,11 +90,6 @@ get() ->
           #json_type{
              name = ipaddress_port,
              typical = {{242,45,0,34}, 8443},
-             reloadable = false}},
-         {'cert-filename',
-          #json_type{
-             name = readable_file,
-             typical = <<"/tmp/cert.pem">>,
              reloadable = false}},
          {'password',  %% should be stored encrypted via pin!
           #json_type {

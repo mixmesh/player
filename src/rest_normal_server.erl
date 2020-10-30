@@ -391,7 +391,7 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
                 _ ->
-                    [{Name, Value}|get_config(Rest, AppSchemas, RealJsonPath)]
+                    [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
             end
     end;
 get_config([{Name, _NotBoolean}|_Rest], _AppSchemas, JsonPath) ->

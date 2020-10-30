@@ -124,12 +124,13 @@ system_wipe_post(JsonTerm) ->
                {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
         PinSalt = player_crypto:pin_salt(),
         case player_crypto:make_key_pair(?b2l(Pin), PinSalt, ?b2l(Nym)) of
-            {ok, PublicKey, EncryptedSecretKey} ->
+            {ok, PublicKey, SecretKey, EncryptedSecretKey} ->
                 SourceConfigFilename =
                     filename:join(
                       [code:priv_dir(player), <<"obscrete.conf.src">>]),
                 {ok, SourceConfig} = file:read_file(SourceConfigFilename),
                 EncodedPublicKey = base64:encode(PublicKey),
+                EncodedSecretKey = base64:encode(SecretKey),
                 EncodedEncryptedSecretKey = base64:encode(EncryptedSecretKey),
                 EncodedPinSalt = base64:encode(PinSalt),
                 TargetConfig =
@@ -156,9 +157,11 @@ system_wipe_post(JsonTerm) ->
                     filename:join([ObscreteDir, <<"obscrete.conf">>]),
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
+                        CertFilename =
+                            filename:join([code:priv_dir(player), <<"cert.pem">>]),
+                        true = mkconfig:start(ObscreteDir, CertFilename, Nym),
                         {ok, {format, [{<<"public-key">>, EncodedPublicKey},
-                                       {<<"secret-key">>,
-                                        EncodedEncryptedSecretKey},
+                                       {<<"secret-key">>, EncodedSecretKey},
                                        {<<"sync-address">>, SyncAddress},
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
@@ -216,8 +219,16 @@ system_reinstall_post(JsonTerm) ->
             try
                 PublicKeyBin = base64:decode(EncodedPublicKey),
                 PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-                {PublicKey#pk.nym, base64:decode(EncodedSecretKey),
-                 base64:decode(EncodedKeyBundle)}
+                case EncodedKeyBundle of
+                    none ->
+                        {PublicKey#pk.nym,
+                         base64:decode(EncodedSecretKey),
+                         EncodedKeyBundle};
+                    _ ->
+                        {PublicKey#pk.nym,
+                         base64:decode(EncodedSecretKey),
+                         base64:decode(EncodedKeyBundle)}
+                end
             catch
                 _:_ ->
                     bad_keys
@@ -260,6 +271,9 @@ system_reinstall_post(JsonTerm) ->
                     filename:join([ObscreteDir, <<"obscrete.conf">>]),
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
+                        CertFilename =
+                            filename:join([code:priv_dir(player), <<"cert.pem">>]),
+                        true = mkconfig:start(ObscreteDir, CertFilename, Nym),
                         ok = import_key_bundle(ObscreteDir, Pin, Nym, PinSalt,
                                                DecodedKeyBundle),
                         {ok, {format, [{<<"nym">>, Nym},
@@ -282,6 +296,8 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
+import_key_bundle(_ObscreteDir, _Pin, _Nym, _PinSalt, none) ->
+    ok;
 import_key_bundle(ObscreteDir, Pin, Nym, PinSalt, KeyBundle) ->
     case rest_normal_server:parse_key_bundle(KeyBundle) of
         bad_format ->
@@ -307,15 +323,18 @@ system_restart_post(_Time) ->
 %% TEST
 
 %% clear(EncodedPublicKey, EncodedSecretKey) ->
-%%     {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-%%      elgamal:binary_to_secret_key(base64:decode(EncodedSecretKey))}.
+%%      {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
+%%       elgamal:binary_to_secret_key(base64:decode(EncodedSecretKey))}.
 
+%% clear() ->
+%%     clear(<<"BWFsaWNlBbqW75jjJ0aPtaq1zGPObUc7ZQ2WIwIRbX2bkVyOkeIkAC9Hg0oc+J7BD\/RG04TDvd1fETcpmJpyvV8QyeKJ3B3BMHi+LPWSRY60yX1XoA\/1A1iuIxTnt22Q68iXyMMlZvA+ivmNxJlsqN3PB2KOch45KkNzi9Hez9u7KTZBhp3d">>,
+%%           <<"BWFsaWNlgMwhWxEO5Ovn0OpNnN62Mu9nvL7Zn1mzlgSBkfC2zZQII\/otb+1jPqLMCDQlFKqNEXGy\/N1PUhotV3w7JBitwsZSUeGfVi2gLJFEkrZ6tGjrUoN3eB65JIzpfQirlLX6oCO5Ab1t4rOmD4BsHvA+lYBbYw3QihArIGqcTyNrbiC1BbqW75jjJ0aPtaq1zGPObUc7ZQ2WIwIRbX2bkVyOkeIkAC9Hg0oc+J7BD\/RG04TDvd1fETcpmJpyvV8QyeKJ3B3BMHi+LPWSRY60yX1XoA\/1A1iuIxTnt22Q68iXyMMlZvA+ivmNxJlsqN3PB2KOch45KkNzi9Hez9u7KTZBhp3d">>).
 
 %% cipher(EncodedPublicKey, Pin, EncodedPinSalt, EncodedEncryptedSecretKey) ->
-%%     DecodedPinSalt = base64:decode(EncodedPinSalt),
-%%     SharedKey = player_crypto:pin_to_shared_key(Pin, DecodedPinSalt),
-%%     DecodedEncryptedSecretKey = base64:decode(EncodedEncryptedSecretKey),
-%%     {ok, DecryptedSecretKey} =
-%%         player_crypto:shared_decrypt(SharedKey, DecodedEncryptedSecretKey),
-%%     {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-%%      elgamal:binary_to_secret_key(DecryptedSecretKey)}.
+%%      DecodedPinSalt = base64:decode(EncodedPinSalt),
+%%      SharedKey = player_crypto:pin_to_shared_key(Pin, DecodedPinSalt),
+%%      DecodedEncryptedSecretKey = base64:decode(EncodedEncryptedSecretKey),
+%%      {ok, DecryptedSecretKey} =
+%%          player_crypto:shared_decrypt(SharedKey, DecodedEncryptedSecretKey),
+%%      {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
+%%       elgamal:binary_to_secret_key(DecryptedSecretKey)}.

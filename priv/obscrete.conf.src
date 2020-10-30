@@ -39,17 +39,14 @@
         },
         "smtp-server": {
             "address": "@@SMTP-ADDRESS@@",
-            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
             "password-digest": "@@SMTP-PASSWORD-DIGEST@@"
         },
         "pop3-server": {
             "address": "@@POP3-ADDRESS@@",
-            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
             "password-digest": "@@POP3-PASSWORD-DIGEST@@"
         },
         "http-server": {
             "address": "@@HTTP-ADDRESS@@",
-            "cert-filename": "@@OBSCRETE-DIR@@/@@NYM@@/player/ssl/cert.pem",
             "password": "@@HTTP-PASSWORD@@"
         },
         "pki-access-settings": {

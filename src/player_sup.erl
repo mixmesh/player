@@ -50,15 +50,12 @@ init(normal) ->
     SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
     Keys = {PublicKey, SecretKey},
     [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
-    [SmtpAddress, SmtpCertFilename, SmtpPasswordDigest] =
-        config:lookup_children([address, 'cert-filename', 'password-digest'],
-                               SmtpServer),
-    [Pop3Address, Pop3CertFilename, Pop3PasswordDigest] =
-        config:lookup_children([address, 'cert-filename', 'password-digest'],
-                               Pop3Server),
-    [HttpAddress, HttpCertFilename, HttpPassword] =
-        config:lookup_children([address, 'cert-filename', password],
-                               HttpServer),
+    [SmtpAddress, SmtpPasswordDigest] =
+        config:lookup_children([address, 'password-digest'], SmtpServer),
+    [Pop3Address, Pop3PasswordDigest] =
+        config:lookup_children([address, 'password-digest'], Pop3Server),
+    [HttpAddress, HttpPassword] =
+        config:lookup_children([address, password], HttpServer),
     PkiMode =
         case config:lookup([player, 'pki-access-settings', mode]) of
             local ->
@@ -80,6 +77,7 @@ init(normal) ->
                                   PkiServerTorAddress, PkiServerTcpAddress}}
                 end
         end,
+    CertFilename = filename:join([ObscreteDir, Nym, "player/ssl/cert.pem"]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -98,17 +96,17 @@ init(normal) ->
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
-                    [Nym, SmtpPasswordDigest, TempDir, SmtpCertFilename,
+                    [Nym, SmtpPasswordDigest, TempDir, CertFilename,
                      SmtpAddress, false]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
-                    [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
+                    [Nym, Pop3PasswordDigest, TempDir, CertFilename,
                      Pop3Address]}},
     RestServerSpec =
 	#{id => rest_normal_server,
           start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
+                    [Nym, HttpPassword, CertFilename, HttpAddress]}},
 %% now always start one nodis_serv (but may be a dummy if sumulation)
 %%    NodisServSpec =
 %%        #{id => nodis_serv,
@@ -138,15 +136,13 @@ init(#simulated_player_serv_config{
         degrees_to_meters = DegreesToMeters,
         spooler_dir = SpoolerDir,
         smtp_address = SmtpAddress,
-        smtp_cert_filename = SmtpCertFilename,
         smtp_password_digest = SmtpPasswordDigest,
         pop3_address = Pop3Address,
-        pop3_cert_filename = Pop3CertFilename,
         pop3_password_digest = Pop3PasswordDigest,
         http_address = HttpAddress,
-        http_cert_filename = HttpCertFilename,
         http_password = HttpPassword,
         pki_mode = PkiMode}) ->
+    CertFilename = filename:join([ObscreteDir, Nym, "player/ssl/cert.pem"]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -165,17 +161,17 @@ init(#simulated_player_serv_config{
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
-                    [Nym, SmtpPasswordDigest, TempDir, SmtpCertFilename,
+                    [Nym, SmtpPasswordDigest, TempDir, CertFilename,
                      SmtpAddress, true]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
-                    [Nym, Pop3PasswordDigest, TempDir, Pop3CertFilename,
+                    [Nym, Pop3PasswordDigest, TempDir, CertFilename,
                      Pop3Address]}},
     RestServerSpec =
 	#{id => rest_normal_server,
           start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, HttpCertFilename, HttpAddress]}},
+                    [Nym, HttpPassword, CertFilename, HttpAddress]}},
     {_SyncIp,SyncPort} = SyncAddress,
     NodisServSpec =
         #{id => nodis_serv,
