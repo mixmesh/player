@@ -7,7 +7,6 @@
 -export([got_message/5]).
 -export([pick_as_source/1]).
 -export([send_message/4]).
--export([add_dummy_messages/2]).
 -export([start_location_updating/1]).
 -export([stop_generating_mail/1]).
 -export_type([message_id/0, pick_mode/0]).
@@ -172,11 +171,6 @@ pick_as_source(Pid) ->
 
 send_message(Pid, MessageId, RecipientNym, Payload) ->
     serv:call(Pid, {send_message, MessageId, RecipientNym, Payload}).
-
-%% Exported: add_dummy_messages
-
-add_dummy_messages(Pid, N) ->
-    serv:call(Pid, {add_dummy_messages, N}).
 
 %% Exported: start_location_updating
 
@@ -445,42 +439,6 @@ message_handler(
               {error, Reason} ->
                   {reply, From, {error, Reason}}
           end;
-      {call, From, {add_dummy_messages, N}} ->
-          RecipientNym = <<"p1">>,
-          {ok, RecipientPublicKey} =
-              read_public_key(PkiServPid, PkiMode, RecipientNym),
-          perform(fun() ->
-                          MessageId = erlang:unique_integer([positive]),
-                          Mail = <<"foo\r\n\r\n">>,
-                          EncryptedData =
-                              elgamal:uencrypt(
-                                <<MessageId:64/unsigned-integer,
-                                  Mail/binary>>,
-                                RecipientPublicKey,
-                                SecretKey),
-                          Message =
-                              <<MessageId:64/unsigned-integer,
-                                EncryptedData/binary>>,
-                          _ = player_buffer:push_many(Buffer, Message, ?K),
-                          case Simulated of
-                              true ->
-                                  true = stats_db:message_created(
-                                           MessageId, Nym, RecipientNym);
-                              false ->
-                                  true
-                          end
-                  end, N),
-          case Simulated of
-              true ->
-                  true = player_db:update(
-                           #db_player{
-                              nym = Nym,
-                              buffer_size = player_buffer:size(Buffer),
-                              pick_mode = PickMode});
-              false ->
-                  true
-          end,
-          {reply, From, ok};
       {cast, start_location_updating} ->
           SendMailTime =
               trunc(?GENERATE_MAIL_TIME / 10 +
@@ -638,12 +596,6 @@ message_handler(
           ?error_log({unknown_message, UnknownMessage}),
           noreply
   end.
-
-perform(_Do, 0) ->
-    ok;
-perform(Do, N) ->
-    Do(),
-    perform(Do, N - 1).
 
 target_message_id(is_nothing) ->
     false;
