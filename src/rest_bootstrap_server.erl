@@ -70,30 +70,36 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                                       {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request, system_wipe_post(JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       system_wipe_post(JsonTerm))
             end;
         ["system", "reinstall"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                                       {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request, system_reinstall_post(JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       system_reinstall_post(JsonTerm))
             end;
         ["system", "restart"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                                       {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request, system_restart_post(JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       system_restart_post(JsonTerm))
             end;
 	_ ->
 	    rest_util:response(Socket, Request, {error, not_found})
@@ -158,7 +164,8 @@ system_wipe_post(JsonTerm) ->
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
                         CertFilename =
-                            filename:join([code:priv_dir(player), <<"cert.pem">>]),
+                            filename:join([code:priv_dir(player),
+                                           <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
                         {ok, {format, [{<<"public-key">>, EncodedPublicKey},
                                        {<<"secret-key">>, EncodedSecretKey},
@@ -272,7 +279,8 @@ system_reinstall_post(JsonTerm) ->
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
                         CertFilename =
-                            filename:join([code:priv_dir(player), <<"cert.pem">>]),
+                            filename:join([code:priv_dir(player),
+                                           <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
                         ok = import_key_bundle(ObscreteDir, Pin, Nym, PinSalt,
                                                DecodedKeyBundle),

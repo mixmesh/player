@@ -118,7 +118,8 @@ handle_http_get(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
 				     <<B>> <= MD5],
 			    [{Name, Fs}|Acc]
 		    end, [], pki_db),
-	    rest_util:response(Socket,Request,rest_util:html_doc(rest_util:html_table(Tab)));
+	    rest_util:response(Socket,Request,
+                               rest_util:html_doc(rest_util:html_table(Tab)));
 	_ ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    rest_util:response(Socket, Request, {error, not_found})
@@ -165,7 +166,8 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                 {ok, PublicKey} ->
                     JsonTerm = base64:encode(
                                  elgamal:public_key_to_binary(PublicKey)),
-                    rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
+                    rest_util:response(Socket, Request,
+                                       {ok, {format, JsonTerm}});
                 {error, no_such_key} ->
                     rest_util:response(Socket, Request, {error, not_found})
             end;
@@ -217,7 +219,8 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
                              {error, bad_request, "Invalid JSON"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
-                    rest_util:response(Socket, Request, key_put(PkiServPid, JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       key_put(PkiServPid, JsonTerm))
             end;
 	_Other ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
@@ -288,7 +291,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                     rest_util:response(Socket, Request,
                              {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request, get_config_post(JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       get_config_post(JsonTerm))
             end;
         ["edit-config"] ->
             case rest_util:parse_body(Request, Body,
@@ -297,7 +301,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                     rest_util:response(Socket, Request,
                              {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request, edit_config_post(JsonTerm))
+                    rest_util:response(Socket, Request,
+                                       edit_config_post(JsonTerm))
             end;
 
         ["key", "filter"] ->
@@ -383,7 +388,8 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                 base64 ->
                     case RealJsonPath of
                         [player, spiridon, 'secret-key'] ->
-                            {ok, DecryptedSecretKey} = shared_decrypt_secret_key(Value),
+                            {ok, DecryptedSecretKey} =
+                                shared_decrypt_secret_key(Value),
                             [{Name, base64:encode(DecryptedSecretKey)}|
                              get_config(Rest, AppSchemas, JsonPath)];
                         _ ->
