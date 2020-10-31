@@ -1,9 +1,6 @@
 -module(sss).
 -compile(export_all).
 
-%% 1> sss:start().
-%% 1>2?1>2?1>2?1>2?1>2?0>?CD
-
 start() ->
     Message = <<"FOOBAR">>,
     listen({127, 0, 0, 1}, 10000, Message, 5, 10),
