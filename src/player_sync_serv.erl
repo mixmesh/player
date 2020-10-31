@@ -73,10 +73,10 @@ connect_now(PlayerServPid, NAddr, #player_sync_serv_options{
                     ok = gen_tcp:close(Socket),
                     ?error_log({connect, send_messages, Reason})
             end;
-        {error, eaddrinuse} ->	    
+        {error, eaddrinuse} ->
 	    ok;
         {error, Reason} ->
-	    ?FSYNC("Connect fail ~p: ~p naddr:~p\n", 
+	    ?FSYNC("Connect fail ~p: ~p naddr:~p\n",
 		   [Reason, SyncAddress, NAddr]),
             ?error_log({connect, Reason})
     end.
@@ -156,7 +156,7 @@ message_handler(#state{parent = Parent,
             Pid =
                 proc_lib:spawn_link(
                   fun() ->
-                          acceptor(Owner, PlayerServPid, NodisServPid, 
+                          acceptor(Owner, PlayerServPid, NodisServPid,
 				   Options, ListenSocket)
                   end),
             {noreply, State#state{acceptors = [Pid|Acceptors]}};
@@ -184,7 +184,7 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
     %% check failure reason of ListenSocket (reload, interface error etc)
     {ok, Socket} = gen_tcp:accept(ListenSocket),
     {ok, SyncAddress} = inet:sockname(Socket),
-    %% Node we may fail to lookup correct fake address if 
+    %% Node we may fail to lookup correct fake address if
     %% connecting side is not fast enough to register socket!
     {ok, {IP,SrcPort}} = inet:peername(Socket),
     NAddr = {IP,SrcPort-1},  %% this MUSt be the nodis address
@@ -241,7 +241,7 @@ do_receive_messages(PlayerServPid,
 %% lookup_simulator_endpoint(Socket) ->
 %%     case inet:peername(Socket) of
 %% 	{ok,IPPort} ->
-%% 	    %% add a tiny delay, to allow connecting side to 
+%% 	    %% add a tiny delay, to allow connecting side to
 %% 	    %% register its enpoint so we map to the nodis instance!
 %% 	    timer:sleep(10),
 %% 	    case ets:lookup(endpoint_reg, IPPort) of
@@ -250,7 +250,7 @@ do_receive_messages(PlayerServPid,
 %% 	    end;
 %% 	Error ->
 %% 	    Error
-%%     end.    
+%%     end.
 
 %% nodis_peer_address(Socket, false) ->
 %%     inet:peername(Socket);
@@ -272,12 +272,9 @@ send_messages(_PlayerServPid, Socket, 0, _SkipBufferIndices) ->
     gen_tcp:send(Socket, <<"\r\n">>);
 send_messages(PlayerServPid, Socket, N, SkipBufferIndices) ->
     case player_serv:buffer_pop(PlayerServPid, SkipBufferIndices) of
-        {ok, <<MessageId:64/unsigned-integer,
-               EncryptedData/binary>>} ->
-            RandomizedData = elgamal:urandomize(EncryptedData),
-            RandomizedMessage =
-                <<MessageId:64/unsigned-integer, RandomizedData/binary>>,
-            case gen_tcp:send(Socket, RandomizedMessage) of
+        {ok, <<MessageId:64/unsigned-integer, EncryptedData/binary>>} ->
+            Message = <<MessageId:64/unsigned-integer, EncryptedData/binary>>,
+            case gen_tcp:send(Socket, Message) of
                 ok ->
                     send_messages(PlayerServPid, Socket, N - 1,
                                   SkipBufferIndices);

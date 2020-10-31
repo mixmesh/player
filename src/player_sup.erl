@@ -87,9 +87,6 @@ init(normal) ->
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
                     [Nym, SyncAddress, F, Keys, _Simulated=false]}},
-    MailServSpec =
-        #{id => mail_serv,
-          start => {mail_serv, start_link, [Nym, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, false]}},
@@ -116,7 +113,6 @@ init(normal) ->
           start => {local_pki_serv, start_link, [ObscreteDir, Nym]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
-                                       MailServSpec,
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,
@@ -152,9 +148,6 @@ init(#simulated_player_serv_config{
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
                     [Nym, SyncAddress, F, Keys, _Simulated=true]}},
-    MailServSpec =
-        #{id => mail_serv,
-          start => {mail_serv, start_link, [Nym, SmtpAddress]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, true]}},
@@ -185,7 +178,6 @@ init(#simulated_player_serv_config{
                     [ObscreteDir, Nym]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
-                                       MailServSpec,
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,

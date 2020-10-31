@@ -1,6 +1,6 @@
 -module(player_buffer).
 -export([new/2]).
--export([push_many/3, push/2, pop/2]).
+-export([push/2, pop/2]).
 -export([size/1]).
 -export([member/2]).
 -export([foldl/3]).
@@ -61,16 +61,6 @@ fill_buffer(false, BufferHandle, N) ->
     Message = elgamal:urandomize(crypto:strong_rand_bytes(?MAX_MESSAGE_SIZE)),
     _ = push(BufferHandle, Message),
     fill_buffer(false, BufferHandle, N - 1).
-
-%% Exported: push_many
-
--spec push_many(buffer_handle(), binary(), integer()) -> [integer()].
-
-push_many(_BufferHandle, _Message, 0) ->
-    [];
-push_many(BufferHandle, Message, K) ->
-    [push(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER))|
-     push_many(BufferHandle, Message, K - 1)].
 
 %% Exported: push
 

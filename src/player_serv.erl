@@ -8,7 +8,6 @@
 -export([pick_as_source/1]).
 -export([send_message/4]).
 -export([start_location_updating/1]).
--export([stop_generating_mail/1]).
 -export_type([message_id/0, pick_mode/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -19,7 +18,6 @@
 -include("../include/player_serv.hrl").
 -include("../include/player_sync_serv.hrl").
 
--define(GENERATE_MAIL_TIME, (60 * 1000)).
 -define(PKI_PUSHBACK_TIME, 10000).
 -define(PKI_NETWORK_TIMEOUT, 20000).
 
@@ -39,7 +37,6 @@
         {parent :: pid(),
          nym :: binary(),
          pki_password :: binary(),
-         mail_serv_pid = not_set :: pid() | not_set,
          maildrop_serv_pid = not_set :: pid() | not_set,
          pki_serv_pid = not_set :: pid() | not_set,
          sync_address :: {inet:ip_address(), inet:port_number()},
@@ -47,7 +44,6 @@
          buffer_dir :: binary(),
          buffer :: player_buffer:buffer_handle(),
          received_messages = [] :: [integer()],
-         generate_mail = false :: boolean(),
          keys :: {#pk{}, #sk{}},
          reply_keys = not_set :: {#pk{}, #sk{}} | not_set,
          location_generator :: function(),
@@ -88,19 +84,18 @@ initial_message_handler(#state{nym = Nym,
     receive
         {neighbour_workers, NeighbourWorkers} ->
             case supervisor_helper:get_selected_worker_pids(
-                   [mail_serv, maildrop_serv, nodis_serv, pki_serv],
+                   [maildrop_serv, nodis_serv, pki_serv],
                    NeighbourWorkers) of
-                [MailServPid, MaildropServPid, undefined, PkiServPid] ->
+                [MaildropServPid, undefined, PkiServPid] ->
                     NodisServPid = whereis(nodis_serv);
-                [MailServPid, MaildropServPid, NodisServPid, PkiServPid] ->
+                [MaildropServPid, NodisServPid, PkiServPid] ->
                     ok
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
             ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
                                     PublicKey),
             {swap_message_handler, fun message_handler/1,
-             State#state{mail_serv_pid = MailServPid,
-                         maildrop_serv_pid = MaildropServPid,
+             State#state{maildrop_serv_pid = MaildropServPid,
                          pki_serv_pid = PkiServPid,
 			 nodis_serv_pid = NodisServPid,
                          nodis_subscription = NodisSubscription}}
@@ -177,11 +172,6 @@ send_message(Pid, MessageId, RecipientNym, Payload) ->
 start_location_updating(Pid) ->
     serv:cast(Pid, start_location_updating).
 
-%% Exported: stop_generating_mail
-
-stop_generating_mail(Pid) ->
-    serv:cast(Pid, stop_generating_mail).
-
 %%
 %% Server
 %%
@@ -219,7 +209,6 @@ init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
 message_handler(
   #state{parent = Parent,
          nym = Nym,
-         mail_serv_pid = MailServPid,
          maildrop_serv_pid = MaildropServPid,
          pki_serv_pid = PkiServPid,
          sync_address = SyncAddress,
@@ -227,7 +216,6 @@ message_handler(
          buffer_dir = _BufferDir,
          buffer = Buffer,
          received_messages = ReceivedMessages,
-         generate_mail = GenerateMail,
          keys = {_PublicKey, SecretKey} = Keys,
          location_generator = LocationGenerator,
          degrees_to_meters = _DegreesToMeters,
@@ -236,7 +224,7 @@ message_handler(
          neighbour_state = NeighbourState,
 	 neighbour_pid = NeighbourPid,
          is_zombie = IsZombie,
-         picked_as_source = PickedAsSource,
+         picked_as_source = _PickedAsSource,
          pick_mode = PickMode,
          paused = Paused,
          meters_moved = MetersMoved,
@@ -314,14 +302,17 @@ message_handler(
           end;
       {call, From,
        {buffer_push,
-        <<MessageId:64/unsigned-integer, _EncryptedData/binary>> = Message}} ->
+        <<MessageId:64/unsigned-integer, EncryptedData/binary>>}} ->
           case target_message_id(PickMode) of
               MessageId ->
                   ?dbg_log({forwarding_target_message, Nym, MessageId});
               _ ->
                   silence
           end,
-          BufferIndex = player_buffer:push(Buffer, Message),
+          RandomizedEncryptedData = elgamal:urandomize(EncryptedData),
+          RandomizedMessage =
+              <<MessageId:64/unsigned-integer, RandomizedEncryptedData/binary>>,
+          BufferIndex = player_buffer:push(Buffer, RandomizedMessage),
           NewPickMode = calculate_pick_mode(Buffer, PickMode),
           case Simulated of
               true ->
@@ -418,11 +409,8 @@ message_handler(
                   EncryptedData =
                       elgamal:uencrypt(
                         <<MessageId:64/unsigned-integer, Mail/binary>>,
-                        RecipientPublicKey,
-                        SecretKey),
-                  Message = <<MessageId:64/unsigned-integer,
-                              EncryptedData/binary>>,
-                  _ = player_buffer:push_many(Buffer, Message, ?K),
+                        RecipientPublicKey, SecretKey),
+                  ok = push_many(Buffer, MessageId, EncryptedData, ?K),
                   case Simulated of
                       true ->
                           true = player_db:update(
@@ -440,14 +428,8 @@ message_handler(
                   {reply, From, {error, Reason}}
           end;
       {cast, start_location_updating} ->
-          SendMailTime =
-              trunc(?GENERATE_MAIL_TIME / 10 +
-                        ?GENERATE_MAIL_TIME / 2 * rand:uniform()),
-          erlang:send_after(SendMailTime, self(), generate_mail),
           self() ! {location_updated, 0},
           noreply;
-      {cast, stop_generating_mail} ->
-          {noreply, State#state{generate_mail = false}};
       %%
       %% Nodis subscription events
       %%
@@ -527,15 +509,6 @@ message_handler(
       %%
       %% Below follows handling of internally generated messages
       %%
-      generate_mail when not IsZombie andalso GenerateMail ->
-          {RecipientNym, _RecipientPublicKey} =
-              simulator_serv:get_random_player(Nym),
-          ok = mail_serv:send_mail(
-                 MailServPid, RecipientNym, PickedAsSource, <<"FOO">>),
-          erlang:send_after(?GENERATE_MAIL_TIME, self(), generate_mail),
-          {noreply, State#state{picked_as_source = false}};
-      generate_mail ->
-          noreply;
       {location_updated, Timestamp} when Paused ->
           erlang:send_after(1000, self(), {location_updated, Timestamp}),
           noreply;
@@ -596,6 +569,14 @@ message_handler(
           ?error_log({unknown_message, UnknownMessage}),
           noreply
   end.
+
+push_many(_Buffer, _MessageId, _EncryptedData, 0) ->
+    ok;
+push_many(Buffer, MessageId, EncryptedData, K) ->
+    RandomizedEncryptedData = elgamal:urandomize(EncryptedData),
+    Message = <<MessageId:64/unsigned-integer, RandomizedEncryptedData/binary>>,
+    _ = player_buffer:push(Buffer, Message),
+    push_many(Buffer, MessageId, EncryptedData, K - 1).
 
 target_message_id(is_nothing) ->
     false;
