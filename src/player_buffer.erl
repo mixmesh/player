@@ -53,9 +53,8 @@ fill_buffer({Buffer, _FileBuffer} = BufferHandle) ->
 fill_buffer(_BuffersimHandle, N) when N < 0 ->
     ok;
 fill_buffer(BufferHandle, N) ->
-    %% message-id is 8 bytes
-    Message = crypto:strong_rand_bytes(?ENCODED_SIZE + 8),
-    _ = push(BufferHandle, Message),
+    Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
+    _ = push(BufferHandle, elgamal:urandomize(Message)),
     fill_buffer(BufferHandle, N - 1).
 
 %% Exported: push_many
