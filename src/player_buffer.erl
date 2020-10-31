@@ -51,7 +51,7 @@ fill_buffer(Simulated, {Buffer, _FileBuffer} = BufferHandle) ->
     fill_buffer(Simulated, BufferHandle,
                 trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
 
-fill_buffer(_Simulated, _BuffersimHandle, N) when N < 0 ->
+fill_buffer(_Simulated, _BufferHandle, N) when N < 0 ->
     ok;
 fill_buffer(true, BufferHandle, N) ->
     Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
