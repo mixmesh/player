@@ -96,21 +96,24 @@ send_only(Type, Message, M, N, Socket) ->
             print(Type, send_only_error)
     end.
 
-print(accept, Mode) ->
-    io:format("~c", [symbol(Mode)]);
-print(connect, Mode) ->
-    io:format("~c", [symbol(Mode) + ($< - $0 + 1)]).
+print(Mode, Status) ->
+    io:format("~w: ~w\n", [Mode, Status]).
 
-symbol(swap_done)             -> $0;
-symbol(swap_before_send)      -> $1;
-symbol(swap_before_recv)      -> $2;
-symbol(swap_recv_error)       -> $3;
-symbol(swap_send_error)       -> $4;
-symbol(recv_only_done)        -> $5;
-symbol(recv_only_before_recv) -> $6;
-symbol(recv_only_closed)      -> $7;
-symbol(recv_only_error)       -> $8;
-symbol(send_only_done)        -> $9;
-symbol(send_only_before_send) -> $:;
-symbol(send_only_closed)      -> $;;
-symbol(send_only_error)       -> $<.
+%% print(accept, Status) ->
+%%     io:format("~c", [symbol(Status)]);
+%% print(connect, Status) ->
+%%     io:format("~c", [symbol(Status) + ($< - $0 + 1)]).
+
+%% symbol(swap_done)             -> $0;
+%% symbol(swap_before_send)      -> $1;
+%% symbol(swap_before_recv)      -> $2;
+%% symbol(swap_recv_error)       -> $3;
+%% symbol(swap_send_error)       -> $4;
+%% symbol(recv_only_done)        -> $5;
+%% symbol(recv_only_before_recv) -> $6;
+%% symbol(recv_only_closed)      -> $7;
+%% symbol(recv_only_error)       -> $8;
+%% symbol(send_only_done)        -> $9;
+%% symbol(send_only_before_send) -> $:;
+%% symbol(send_only_closed)      -> $;;
+%% symbol(send_only_error)       -> $<.
