@@ -8,6 +8,7 @@
 -export([pick_as_source/1]).
 -export([send_message/4]).
 -export([start_location_updating/1]).
+-export([get_unique_id/0]).
 -export_type([message_id/0, pick_mode/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -172,6 +173,11 @@ send_message(Pid, MessageId, RecipientNym, Payload) ->
 start_location_updating(Pid) ->
     serv:cast(Pid, start_location_updating).
 
+%% Exported: get_unique_id
+
+get_unique_id() ->
+    erlang:unique_integer([positive]).
+
 %%
 %% Server
 %%
@@ -330,19 +336,19 @@ message_handler(
           {reply, From, player_buffer:size(Buffer)};
       {cast, {got_message, _, _, _, _}} when IsZombie ->
           noreply;
-      {cast, {got_message, MessageId, SenderNym, Signature,
-              <<MessageId:64/unsigned-integer,
-                Mail/binary>> = DecryptedData}} ->
+      {cast, {got_message, MessageId, SenderNym, Signature, DecryptedData}} ->
           case lists:member(MessageId, ReceivedMessages) of
               false ->
                   case read_public_key(PkiServPid, PkiMode, SenderNym) of
                       {ok, SenderPublicKey} ->
-                          Verified = elgamal:verify(Signature, DecryptedData,
-                                                    SenderPublicKey);
+                          Verified =
+                              elgamal:verify(Signature, DecryptedData,
+                                             SenderPublicKey);
                       {error, _Reason} ->
                           Verified = false
                   end,
                   TempFilename = mail_util:mktemp(TempDir),
+                  Mail = DecryptedData,
                   case Verified of
                       true ->
                           ?daemon_log_tag_fmt(
@@ -407,9 +413,7 @@ message_handler(
           case read_public_key(PkiServPid, PkiMode, RecipientNym) of
               {ok, RecipientPublicKey} ->
                   EncryptedData =
-                      elgamal:uencrypt(
-                        <<MessageId:64/unsigned-integer, Mail/binary>>,
-                        RecipientPublicKey, SecretKey),
+                      elgamal:uencrypt(Mail, RecipientPublicKey, SecretKey),
                   ok = push_many(Buffer, MessageId, EncryptedData, ?K),
                   case Simulated of
                       true ->

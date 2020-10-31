@@ -18,7 +18,7 @@
          options :: #player_sync_serv_options{},
          listen_socket :: inet:socket(),
          acceptors :: [pid()],
-	 nodis_serv_pid :: pid(),
+	 nodis_serv_pid :: pid() | undefined,
          player_serv_pid = not_set :: pid() | not_set}).
 
 %% Exported: connect

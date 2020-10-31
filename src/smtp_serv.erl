@@ -234,7 +234,7 @@ data(#channel{
                 #state{forward_path = not_set} ->
                     #response{status = 554, info = <<"no valid recipients">>};
                 #state{forward_path = ForwardPath} ->
-                    MessageId = erlang:unique_integer([positive]),
+                    MessageId = player_serv:get_unique_id(),
                     TargetNym =
                         re:replace(ForwardPath, <<"@.*">>, <<"">>,
                                    [{return, binary}]),
