@@ -1,5 +1,5 @@
 -module(player_buffer).
--export([new/1]).
+-export([new/2]).
 -export([push_many/3, push/2, pop/2]).
 -export([size/1]).
 -export([member/2]).
@@ -16,11 +16,11 @@
 %% Exported: new
 
 -type buffer_handle() :: {ets:tid(), reference()}.
--spec new(binary()) ->
+-spec new(binary(), boolean()) ->
           {ok, buffer_handle()} |
           {error, invalid_buffer_dir | {file_buffer_corrupt, term()}}.
 
-new(Dir) ->
+new(Dir, Simulated) ->
     case filelib:is_dir(Dir) of
         true ->
             BufferFilename = filename:join([Dir, "db"]),
@@ -30,7 +30,7 @@ new(Dir) ->
                     Buffer = ets:new(player_buffer, [ordered_set]),
                     true = ets:from_dets(Buffer, FileBuffer),
                     BufferHandle = {Buffer, FileBuffer},
-                    ok = fill_buffer(BufferHandle),
+                    ok = fill_buffer(Simulated, BufferHandle),
                     {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
@@ -46,17 +46,21 @@ new(Dir) ->
 %% lot of messages.
 %%
 
-fill_buffer({Buffer, _FileBuffer} = BufferHandle) ->
+fill_buffer(Simulated, {Buffer, _FileBuffer} = BufferHandle) ->
     BufferSize = ets:info(Buffer, size),
-    fill_buffer(BufferHandle, trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
+    fill_buffer(Simulated, BufferHandle,
+                trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
 
-fill_buffer(_BuffersimHandle, N) when N < 0 ->
+fill_buffer(_Simulated, _BuffersimHandle, N) when N < 0 ->
     ok;
-fill_buffer(BufferHandle, N) ->
-    %%Message = elgamal:urandomize(crypto:strong_rand_bytes(?MAX_MESSAGE_SIZE)),
+fill_buffer(true, BufferHandle, N) ->
     Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
     _ = push(BufferHandle, Message),
-    fill_buffer(BufferHandle, N - 1).
+    fill_buffer(true, BufferHandle, N - 1);
+fill_buffer(false, BufferHandle, N) ->
+    Message = elgamal:urandomize(crypto:strong_rand_bytes(?MAX_MESSAGE_SIZE)),
+    _ = push(BufferHandle, Message),
+    fill_buffer(false, BufferHandle, N - 1).
 
 %% Exported: push_many
 

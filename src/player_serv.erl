@@ -189,7 +189,7 @@ stop_generating_mail(Pid) ->
 init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
-    case player_buffer:new(BufferDir) of
+    case player_buffer:new(BufferDir, Simulated) of
         {ok, Buffer} ->
             case Simulated of
                 true ->
