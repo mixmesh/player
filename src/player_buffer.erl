@@ -130,7 +130,6 @@ replace({Buffer, FileBuffer, OwnIndices} = BufferHandle, Message, Index) ->
             replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER))
     end.
 
-
 make_room({Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
     make_room(BufferHandle, ets:first(Buffer)).
 
