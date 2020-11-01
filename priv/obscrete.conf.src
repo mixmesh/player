@@ -19,23 +19,17 @@
         "enabled": false,
         "address": "0.0.0.0:11112",
         "timeout": 30000,
-        "data-dir": "@@OBSCRETE-DIR@@/pki/data"
+        "data-dir": "@@OBSCRETE-DIR@@/global-pki"
     },
     "player": {
         "enabled": true,
         "nym": "@@NYM@@",
-        "pki-password": "baz",
         "sync-address": "@@SYNC-ADDRESS@@",
-        "temp-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/temp",
-        "buffer-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/buffer",
         "spiridon": {
             "f": 0.2,
             "k": 10,
             "public-key": "@@PUBLIC-KEY@@",
             "secret-key": "@@SECRET-KEY@@"
-        },
-        "maildrop": {
-            "spooler-dir": "@@OBSCRETE-DIR@@/@@NYM@@/player/maildrop/spooler"
         },
         "smtp-server": {
             "address": "@@SMTP-ADDRESS@@",
@@ -52,6 +46,7 @@
         "pki-access-settings": {
             "mode": "local",
             "global": {
+                "password": "baz",
                 "access": "tcp-only",
                 "pki-server-tor-address": "z2rev4qfooicn3z3.onion:11112",
                 "pki-server-tcp-address": "127.0.0.1:11112"

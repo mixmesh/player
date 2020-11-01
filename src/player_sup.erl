@@ -75,11 +75,13 @@ init(normal) ->
                           PkiServerTcpAddress}}
                 end
         end,
-    PlayerDir = filename:join([ObscreteDir, Nym, "player"]),
-    TempDir = filename:join([PlayerDir, "temp"]),
-    BufferDir = filename:join([PlayerDir, "buffer"]),
-    SpoolerDir = filename:join([PlayerDir, "maildrop", "spooler"]),
-    CertFilename = filename:join([PlayerDir, "ssl", "cert.pem"]),
+    PlayerDir = filename:join([ObscreteDir, Nym, <<"player">>]),
+    TempDir = filename:join([PlayerDir, <<"temp">>]),
+    BufferDir = filename:join([PlayerDir, <<"buffer">>]),
+    SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
+    ReceivedMessagesDir = filename:join([PlayerDir, <<"received-messages">>]),
+    LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
+    CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -106,23 +108,18 @@ init(normal) ->
 	#{id => rest_normal_server,
           start => {rest_normal_server, start_link,
                     [Nym, HttpPassword, CertFilename, HttpAddress]}},
-%% now always start one nodis_serv (but may be a dummy if sumulation)
-%%    NodisServSpec =
-%%        #{id => nodis_serv,
-%%          start => {nodis_serv, start_link, [#{}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
-          start => {local_pki_serv, start_link, [ObscreteDir, Nym]}},
+          start => {local_pki_serv, start_link, [LocalPkiDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MaildropServSpec,
                                        SmtpServSpec,
                                        Pop3ServSpec,
                                        RestServerSpec,
-                                       %% NodisServSpec,
                                        LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
-        obscrete_dir = ObscreteDir,
+        players_dir = PlayersDir,
         nym = Nym,
         sync_address = SyncAddress,
         keys = Keys,
@@ -136,11 +133,13 @@ init(#simulated_player_serv_config{
         http_address = HttpAddress,
         http_password = HttpPassword,
         pki_mode = PkiMode}) ->
-    PlayerDir = filename:join([ObscreteDir, Nym, "player"]),
-    TempDir = filename:join([PlayerDir, "temp"]),
-    BufferDir = filename:join([PlayerDir, "buffer"]),
-    SpoolerDir = filename:join([PlayerDir, "maildrop", "spooler"]),
-    CertFilename = filename:join([PlayerDir, "ssl", "cert.pem"]),
+    PlayerDir = filename:join([PlayersDir, Nym, <<"player">>]),
+    TempDir = filename:join([PlayerDir, <<"temp">>]),
+    BufferDir = filename:join([PlayerDir, <<"buffer">>]),
+    SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
+    ReceivedMessagesDir = filename:join([PlayerDir, <<"received-messages">>]),
+    LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
+    CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -177,7 +176,7 @@ init(#simulated_player_serv_config{
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {local_pki_serv, start_link,
-                    [ObscreteDir, Nym]}},
+                    [LocalPkiDir]}},
     {ok, {#{strategy => one_for_all}, [PlayerServSpec,
                                        PlayerSyncServSpec,
                                        MaildropServSpec,

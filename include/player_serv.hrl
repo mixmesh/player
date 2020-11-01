@@ -24,7 +24,7 @@
          pick_mode = not_set :: player_serv:pick_mode() | not_set}).
 
 -record(simulated_player_serv_config,
-        {obscrete_dir :: binary(),
+        {players_dir :: binary(),
          nym :: binary(),
          sync_address :: {inet:ip_address(), inet:port_number()},
          keys :: {#pk{}, #sk{}},
