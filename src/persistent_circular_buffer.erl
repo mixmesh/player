@@ -1,10 +1,10 @@
 -module(persistent_circular_buffer).
--export([open/2, close/1, exists/2, add/2]).
+-export([open/3, close/1, exists/2, add/2]).
 
 %% Exported: open
 
-open(Filename, MaxSize) ->
-    case dets:open_file(?MODULE, [{file, Filename}]) of
+open(Name, Filename, MaxSize) ->
+    case dets:open_file(Name, [{file, Filename}]) of
         {ok, Db} ->
             case dets:lookup(Db, header) of
                 [] ->

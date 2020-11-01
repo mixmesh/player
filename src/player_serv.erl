@@ -13,6 +13,7 @@
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
+-include_lib("apptools/include/shorthand.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 -include_lib("pki/include/pki_serv.hrl").
 -include_lib("pki/include/pki_network_client.hrl").
@@ -24,7 +25,7 @@
 
 %% -define(DSYNC(F,A), io:format((F),(A))).
 -define(DSYNC(F,A), ok).
-
+-define(STORED_MESSAGE_DIGESTS, 10000).
 
 -type message_id() :: integer().
 -type pick_mode() :: is_nothing |
@@ -43,7 +44,7 @@
          temp_dir :: binary(),
          buffer_dir :: binary(),
          buffer :: player_buffer:buffer_handle(),
-         received_messages = [] :: [integer()],
+         message_digests :: atom(),
          keys :: {#pk{}, #sk{}},
          reply_keys = not_set :: {#pk{}, #sk{}} | not_set,
          location_generator :: function(),
@@ -190,7 +191,11 @@ init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
             LocationGenerator = not_set
     end,
     ok = config_serv:subscribe(),
-    %%{ok, ReceivedMessages} = circular_buffer:open(<<"/tmp">>),
+    MessageDigestsFilename = filename:join([BufferDir, <<"digests.db">>]),
+    {ok, MessageDigests} =
+        persistent_circular_buffer:open(
+          {digests, Nym}, ?b2l(MessageDigestsFilename),
+          ?STORED_MESSAGE_DIGESTS),
     ?daemon_log_tag_fmt(
        system, "Player server for ~s has been started", [Nym]),
     {ok, #state{parent = Parent,
@@ -199,7 +204,7 @@ init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
                 temp_dir = TempDir,
                 buffer_dir = BufferDir,
                 buffer = Buffer,
-                %%received_messages = ReceivedMessages,
+                message_digests = MessageDigests,
                 keys = Keys,
                 location_generator = LocationGenerator,
                 degrees_to_meters = DegreesToMeters,
@@ -215,7 +220,7 @@ message_handler(
          temp_dir = TempDir,
          buffer_dir = _BufferDir,
          buffer = Buffer,
-         received_messages = ReceivedMessages,
+         message_digests = MessageDigests,
          keys = {_PublicKey, SecretKey} = Keys,
          location_generator = LocationGenerator,
          degrees_to_meters = _DegreesToMeters,
@@ -331,7 +336,9 @@ message_handler(
       {cast, {got_message, _, _, _, _}} when IsZombie ->
           noreply;
       {cast, {got_message, MessageId, SenderNym, Signature, DecryptedData}} ->
-          case lists:member(MessageId, ReceivedMessages) of
+          DigestedDecryptedData = base64:encode(DecryptedData),
+          case persistent_circular_buffer:exists(
+                 MessageDigests, DigestedDecryptedData) of
               false ->
                   case read_public_key(PkiServPid, PkiMode, SenderNym) of
                       {ok, SenderPublicKey} ->
@@ -386,8 +393,9 @@ message_handler(
                       _ ->
                           ok
                   end,
-                  {noreply, State#state{received_messages =
-                                            [MessageId, ReceivedMessages]}};
+                  ok = persistent_circular_buffer:add(
+                         MessageDigests, DigestedDecryptedData),
+                  {noreply, State};
               true ->
                   ?daemon_log_tag_fmt(
                      system, "~s received a duplicated message from ~s (~w)",
@@ -438,7 +446,6 @@ message_handler(
 	  update_neighbours(Simulated, Nym, NeighbourState1),
 	  {noreply, State#state{neighbour_state=NeighbourState1,
 				neighbour_pid=NeighbourPid1 }};
-
       {nodis, NodisSubscription, {up, NAddr}} ->
 	  ?DSYNC("Up: ~p naddr=~p\n", [SyncAddress, NAddr]),
 	  ?dbg_log_tag(nodis, {up, NAddr}),
@@ -468,7 +475,6 @@ message_handler(
 		  ?dbg_log_tag(nodis, {up, NAddr}),
 		  {noreply, State#state{neighbour_state=NeighbourState1}}
 	  end;
-
       {nodis, NodisSubscription, {down,NAddr}} ->
 	  ?DSYNC("Down: ~p naddr=~p\n", [SyncAddress, NAddr]),
           ?dbg_log_tag(nodis, {down, NAddr}),
@@ -481,13 +487,13 @@ message_handler(
 	      _ ->
 		  {noreply, State#state{neighbour_state=NeighbourState1}}
 	  end;
-
       {nodis, NodisSubscription, {missed, NAddr}} ->
 	  ?DSYNC("Missed: ~p naddr=~p\n", [SyncAddress, NAddr]),
           ?dbg_log_tag(nodis, {missed, NAddr}),
           noreply;
-
       {'EXIT', Parent, Reason} ->
+          ok = persistent_circular_buffer:close(MessageDigests),
+          ok = player_buffer:delete(Buffer),
           exit(Reason);
       {'EXIT', Pid, _Reason} = UnknownMessage ->
 	  case maps:get(Pid, NeighbourPid, undefined) of

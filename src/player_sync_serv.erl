@@ -68,7 +68,8 @@ connect_now(PlayerServPid, NAddr, #player_sync_serv_options{
                             ?error_log({connect, receive_message, Reason})
                     end;
                 {error, closed} ->
-                    ?error_log({connect, send_messages, premature_socket_close});
+                    %%?error_log({connect, send_messages, premature_socket_close}),
+                    ok;
                 {error, Reason} ->
                     ok = gen_tcp:close(Socket),
                     ?error_log({connect, send_messages, Reason})
@@ -225,7 +226,8 @@ do_receive_messages(PlayerServPid,
                     gen_tcp:close(Socket)
             end;
         {error, closed} ->
-            ?error_log({acceptor, premature_socket_close});
+            %%?error_log({acceptor, premature_socket_close}),
+            ok;
         {error, Reason} ->
             ?error_log({acceptor, receive_messages, Reason}),
             gen_tcp:close(Socket)
