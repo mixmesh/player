@@ -1,6 +1,6 @@
 -module(player_buffer).
 -export([new/2, delete/1]).
--export([push/2, pop/2]).
+-export([push/2, pop/2, replace/2]).
 -export([size/1]).
 -export([member/2]).
 -export([foldl/3]).
@@ -15,7 +15,7 @@
 
 %% Exported: new
 
--type buffer_handle() :: {ets:tid(), reference()}.
+-type buffer_handle() :: {ets:tid(), reference(), ets:tid()}.
 -spec new(binary(), boolean()) ->
           {ok, buffer_handle()} |
           {error, invalid_buffer_dir | {file_buffer_corrupt, term()}}.
@@ -29,7 +29,8 @@ new(Dir, Simulated) ->
                 {ok, FileBuffer} ->
                     Buffer = ets:new(player_buffer, [ordered_set]),
                     true = ets:from_dets(Buffer, FileBuffer),
-                    BufferHandle = {Buffer, FileBuffer},
+                    OwnIndices = ets:new(player_own_indices, []),
+                    BufferHandle = {Buffer, FileBuffer, OwnIndices},
                     ok = fill_buffer(Simulated, BufferHandle),
                     {ok, BufferHandle};
                 {error, Reason} ->
@@ -46,7 +47,7 @@ new(Dir, Simulated) ->
 %% lot of messages.
 %%
 
-fill_buffer(Simulated, {Buffer, _FileBuffer} = BufferHandle) ->
+fill_buffer(Simulated, {Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
     BufferSize = ets:info(Buffer, size),
     fill_buffer(Simulated, BufferHandle,
                 trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
@@ -66,8 +67,9 @@ fill_buffer(false, BufferHandle, N) ->
 
 -spec delete(buffer_handle()) -> ok | {error, term()}.
 
-delete({Buffer, FileBuffer}) ->
+delete({Buffer, FileBuffer, OwnIndices}) ->
     true = ets:delete(Buffer),
+    true = ets:delete(OwnIndices),
     dets:close(FileBuffer).
 
 %% Exported: push
@@ -77,7 +79,7 @@ delete({Buffer, FileBuffer}) ->
 push(BufferHandle, Message) ->
     push(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
 
-push({Buffer, FileBuffer} = BufferHandle, Message, Index) ->
+push({Buffer, FileBuffer, _OwnIndices} = BufferHandle, Message, Index) ->
     case ets:lookup(Buffer, Index) of
         [] ->
             true = ets:insert(Buffer, {Index, Message}),
@@ -92,12 +94,12 @@ push({Buffer, FileBuffer} = BufferHandle, Message, Index) ->
 -spec pop(buffer_handle(), [integer()]) ->
           {ok, binary()} | {error, no_more_messages}.
 
-pop({Buffer, _FileBuffer} = BufferHandle, SkipIndices) ->
+pop({Buffer, _FileBuffer, _OwnIndices} = BufferHandle, SkipIndices) ->
     pop(BufferHandle, SkipIndices, ets:first(Buffer)).
 
 pop(_BufferHandle, _SkipIndices, '$end_of_table') ->
     {error, no_more_messages};
-pop({Buffer, FileBuffer} = BufferHandle, SkipIndices, Index) ->
+pop({Buffer, FileBuffer, OwnIndices} = BufferHandle, SkipIndices, Index) ->
     case lists:member(Index, SkipIndices) of
         true ->
             pop(BufferHandle, SkipIndices, ets:next(Buffer, Index));
@@ -105,21 +107,57 @@ pop({Buffer, FileBuffer} = BufferHandle, SkipIndices, Index) ->
             [{_, Message}] = ets:lookup(Buffer, Index),
             true = ets:delete(Buffer, Index),
             ok = dets:delete(FileBuffer, Index),
+            true = ets:delete(OwnIndices, Index),
             {ok, Message}
+    end.
+
+%% Exported: replace
+
+-spec replace(buffer_handle(), binary()) -> integer().
+
+replace(BufferHandle, Message) ->
+    replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
+
+replace({Buffer, FileBuffer, OwnIndices} = BufferHandle, Message, Index) ->
+    case ets:lookup(Buffer, Index) of
+        [] ->
+            ok = make_room(BufferHandle),
+            true = ets:insert(Buffer, {Index, Message}),
+            ok = dets:insert(FileBuffer, {Index, Message}),
+            true = ets:insert(OwnIndices, {Index, true}),
+            Index;
+        _ ->
+            replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER))
+    end.
+
+
+make_room({Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
+    make_room(BufferHandle, ets:first(Buffer)).
+
+make_room(_BufferHandle, '$end_of_table') ->
+    ok;
+make_room({Buffer, FileBuffer, OwnIndices} = BufferHandle, Index) ->
+    case ets:lookup(OwnIndices, Index) of
+        [] ->
+            true = ets:delete(Buffer, Index),
+            dets:delete(FileBuffer, Index);
+        [_] ->
+            ?dbg_log({do_not_replace_own_index, Index}),
+            make_room(BufferHandle, ets:next(Buffer, Index))
     end.
 
 %% Exported: size
 
 -spec size(buffer_handle()) -> integer().
 
-size({Buffer, _FileBuffer}) ->
+size({Buffer, _FileBuffer, _OwnIndices}) ->
     ets:info(Buffer, size).
 
 %% Exported: member
 
 -spec member(buffer_handle(), function()) -> boolean().
 
-member({Buffer, _FileBuffer}, Do) ->
+member({Buffer, _FileBuffer, _OwnIndices}, Do) ->
     member(Buffer, Do, ets:first(Buffer)).
 
 member(_Buffer, _Do, '$end_of_table') ->
@@ -137,7 +175,7 @@ member(Buffer, Do, Index) ->
 
 -spec foldl(buffer_handle(), function(), any()) -> any().
 
-foldl({Buffer, _FileBuffer}, Do, Acc) ->
+foldl({Buffer, _FileBuffer, _OwnIndices}, Do, Acc) ->
     foldl(Buffer, Do, Acc, ets:first(Buffer)).
 
 foldl(_Buffer, _Do, Acc, '$end_of_table') ->

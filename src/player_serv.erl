@@ -416,7 +416,7 @@ message_handler(
               {ok, RecipientPublicKey} ->
                   EncryptedData =
                       elgamal:uencrypt(Mail, RecipientPublicKey, SecretKey),
-                  ok = push_many(Buffer, MessageId, EncryptedData, ?K),
+                  ok = replace_messages(Buffer, MessageId, EncryptedData, ?K),
                   case Simulated of
                       true ->
                           true = player_db:update(
@@ -574,13 +574,13 @@ message_handler(
           noreply
   end.
 
-push_many(_Buffer, _MessageId, _EncryptedData, 0) ->
+replace_messages(_Buffer, _MessageId, _EncryptedData, 0) ->
     ok;
-push_many(Buffer, MessageId, EncryptedData, K) ->
+replace_messages(Buffer, MessageId, EncryptedData, K) ->
     RandomizedEncryptedData = elgamal:urandomize(EncryptedData),
     Message = <<MessageId:64/unsigned-integer, RandomizedEncryptedData/binary>>,
-    _ = player_buffer:push(Buffer, Message),
-    push_many(Buffer, MessageId, EncryptedData, K - 1).
+    _ = player_buffer:replace(Buffer, Message),
+    replace_messages(Buffer, MessageId, EncryptedData, K - 1).
 
 target_message_id(is_nothing) ->
     false;
