@@ -182,31 +182,29 @@ get_unique_id() ->
 init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
-    case player_buffer:new(BufferDir, Simulated) of
-        {ok, Buffer} ->
-            case Simulated of
-                true ->
-                    LocationGenerator = GetLocationGenerator();
-                false ->
-                    LocationGenerator = not_set
-            end,
-            ok = config_serv:subscribe(),
-            ?daemon_log_tag_fmt(
-               system, "Player server for ~s has been started", [Nym]),
-            {ok, #state{parent = Parent,
-                        nym = Nym,
-                        sync_address = SyncAddress,
-                        temp_dir = TempDir,
-                        buffer_dir = BufferDir,
-                        buffer = Buffer,
-                        keys = Keys,
-                        location_generator = LocationGenerator,
-                        degrees_to_meters = DegreesToMeters,
-                        pki_mode = PkiMode,
-                        simulated = Simulated}};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    {ok, Buffer} = player_buffer:new(BufferDir, Simulated),
+    case Simulated of
+        true ->
+            LocationGenerator = GetLocationGenerator();
+        false ->
+            LocationGenerator = not_set
+    end,
+    ok = config_serv:subscribe(),
+    %%{ok, ReceivedMessages} = circular_buffer:open(<<"/tmp">>),
+    ?daemon_log_tag_fmt(
+       system, "Player server for ~s has been started", [Nym]),
+    {ok, #state{parent = Parent,
+                nym = Nym,
+                sync_address = SyncAddress,
+                temp_dir = TempDir,
+                buffer_dir = BufferDir,
+                buffer = Buffer,
+                %%received_messages = ReceivedMessages,
+                keys = Keys,
+                location_generator = LocationGenerator,
+                degrees_to_meters = DegreesToMeters,
+                pki_mode = PkiMode,
+                simulated = Simulated}}.
 
 message_handler(
   #state{parent = Parent,
