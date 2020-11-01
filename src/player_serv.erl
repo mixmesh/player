@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/10, stop/1]).
+-export([start_link/9, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -37,7 +37,6 @@
 -record(state,
         {parent :: pid(),
          nym :: binary(),
-         pki_password :: binary(),
          maildrop_serv_pid = not_set :: pid() | not_set,
          pki_serv_pid = not_set :: pid() | not_set,
          sync_address :: {inet:ip_address(), inet:port_number()},
@@ -61,25 +60,24 @@
          pick_mode = is_nothing :: pick_mode(),
          paused = false :: boolean(),
          meters_moved = 0 :: integer(),
-         pki_mode :: local | {global, pki_network_client:pki_access()},
+         pki_mode :: local |
+                     {global, binary(), pki_network_client:pki_access()},
          simulated :: boolean(),
 	 nodis_serv_pid :: pid() | undefined,
          nodis_subscription :: reference() | undefined}).
 
 %% Exported: start_link
 
-start_link(Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
-           GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
+start_link(Nym, SyncAddress, TempDir, BufferDir, Keys, GetLocationGenerator,
+           DegreesToMeters, PkiMode, Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir,
-                    Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
-                    Simulated)
+               init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
+                    GetLocationGenerator, DegreesToMeters, PkiMode, Simulated)
        end,
        fun initial_message_handler/1).
 
 initial_message_handler(#state{nym = Nym,
-                               pki_password = PkiPassword,
                                keys = {PublicKey, _SecretKey},
                                pki_mode = PkiMode} = State) ->
     receive
@@ -93,8 +91,7 @@ initial_message_handler(#state{nym = Nym,
                     ok
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
-            ok = publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
-                                    PublicKey),
+            ok = publish_public_key(PkiServPid, PkiMode, Nym, PublicKey),
             {swap_message_handler, fun message_handler/1,
              State#state{maildrop_serv_pid = MaildropServPid,
                          pki_serv_pid = PkiServPid,
@@ -182,7 +179,7 @@ get_unique_id() ->
 %% Server
 %%
 
-init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
     case player_buffer:new(BufferDir, Simulated) of
@@ -198,7 +195,6 @@ init(Parent, Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
                system, "Player server for ~s has been started", [Nym]),
             {ok, #state{parent = Parent,
                         nym = Nym,
-                        pki_password = PkiPassword,
                         sync_address = SyncAddress,
                         temp_dir = TempDir,
                         buffer_dir = BufferDir,
@@ -654,7 +650,7 @@ get_player_nyms(Ns) ->
 
 read_public_key(PkiServPid, local, Nym) ->
     local_pki_serv:read(PkiServPid, Nym);
-read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
+read_public_key(_PkiServPid, {global, _PkiPassword, PkiAccess}, Nym) ->
     case pki_network_client:read(
            Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
@@ -664,7 +660,7 @@ read_public_key(_PkiServPid, {global, PkiAccess}, Nym) ->
             {error, Reason}
     end.
 
-publish_public_key(PkiServPid, local, Nym, _PkiPassword, PublicKey) ->
+publish_public_key(PkiServPid, local, Nym, PublicKey) ->
     case local_pki_serv:read(PkiServPid, Nym) of
         {ok, PublicKey} ->
             ?daemon_log_tag_fmt(system, "Local PKI server is in sync", []),
@@ -679,7 +675,7 @@ publish_public_key(PkiServPid, local, Nym, _PkiPassword, PublicKey) ->
                system, "Created an entry in the local PKI server", []),
             ok
     end;
-publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
+publish_public_key(PkiServPid, {global, PkiPassword, PkiAccess} = PkiMode, Nym,
                    PublicKey) ->
     case pki_network_client:read(
            Nym, #pki_network_client_options{pki_access = PkiAccess},
@@ -703,8 +699,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                        "Could not update the global PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
-                                       PublicKey)
+                    publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
             end;
         {error, <<"No such user">>} ->
             case pki_network_client:create(
@@ -723,8 +718,7 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                        "Could not create an entry in the global PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
-                                       PublicKey)
+                    publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
             end;
         {error, Reason} ->
             ?daemon_log_tag_fmt(
@@ -732,6 +726,5 @@ publish_public_key(PkiServPid, {global, PkiAccess} = PkiMode, Nym, PkiPassword,
                "Could not contact the global PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(PkiServPid, PkiMode, Nym, PkiPassword,
-                               PublicKey)
+            publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
     end.

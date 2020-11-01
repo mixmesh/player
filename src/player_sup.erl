@@ -35,12 +35,10 @@ init(normal) ->
     [ObscreteDir, Pin, PinSalt] =
         config:lookup_children(['obscrete-dir', pin, 'pin-salt'],
                                config:lookup([system])),
-    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Spiridon,
-     Maildrop, SmtpServer, Pop3Server, HttpServer] =
+    [Nym, SyncAddress, Spiridon, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
-          [nym, 'pki-password', 'sync-address', 'temp-dir', 'buffer-dir',
-           spiridon, maildrop, 'smtp-server', 'pop3-server', 'http-server'],
-          config:lookup([player])),
+          [nym, 'sync-address', spiridon, 'smtp-server', 'pop3-server',
+           'http-server'], config:lookup([player])),
     [F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
@@ -49,7 +47,6 @@ init(normal) ->
         player_crypto:shared_decrypt(SharedKey, EncryptedSecretKey),
     SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
     Keys = {PublicKey, SecretKey},
-    [SpoolerDir] = config:lookup_children(['spooler-dir'], Maildrop),
     [SmtpAddress, SmtpPasswordDigest] =
         config:lookup_children([address, 'password-digest'], SmtpServer),
     [Pop3Address, Pop3PasswordDigest] =
@@ -61,28 +58,33 @@ init(normal) ->
             local ->
                 local;
             global ->
-                [PkiAccess, PkiServerTorAddress, PkiServerTcpAddress] =
+                [PkiPassword, PkiAccess, PkiServerTorAddress,
+                 PkiServerTcpAddress] =
                     config:lookup_children(
-                      [access,
-                       'pki-server-tor-address',
+                      [password, access, 'pki-server-tor-address',
                        'pki-server-tcp-address'],
                       config:lookup([player, 'pki-access-settings', global])),
                 case PkiAccess of
                     tor_only ->
-                        {global, {tor_only, PkiServerTorAddress}};
+                        {global, PkiPassword, {tor_only, PkiServerTorAddress}};
                     tcp_only ->
-                        {global, {tcp_only, PkiServerTcpAddress}};
+                        {global, PkiPassword, {tcp_only, PkiServerTcpAddress}};
                     tor_fallback_to_tcp ->
-                        {global, {tor_fallback_to_tcp,
-                                  PkiServerTorAddress, PkiServerTcpAddress}}
+                        {global, PkiPassword,
+                         {tor_fallback_to_tcp, PkiServerTorAddress,
+                          PkiServerTcpAddress}}
                 end
         end,
-    CertFilename = filename:join([ObscreteDir, Nym, "player/ssl/cert.pem"]),
+    PlayerDir = filename:join([ObscreteDir, Nym, "player"]),
+    TempDir = filename:join([PlayerDir, "temp"]),
+    BufferDir = filename:join([PlayerDir, "buffer"]),
+    SpoolerDir = filename:join([PlayerDir, "maildrop", "spooler"]),
+    CertFilename = filename:join([PlayerDir, "ssl", "cert.pem"]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
-                     not_set, not_set, PkiMode, false]}},
+                    [Nym, SyncAddress, TempDir, BufferDir, Keys, not_set,
+                     not_set, PkiMode, false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -122,15 +124,11 @@ init(normal) ->
 init(#simulated_player_serv_config{
         obscrete_dir = ObscreteDir,
         nym = Nym,
-        pki_password = PkiPassword,
         sync_address = SyncAddress,
-        temp_dir = TempDir,
-        buffer_dir = BufferDir,
         keys = Keys,
         f = F,
         get_location_generator = GetLocationGenerator,
         degrees_to_meters = DegreesToMeters,
-        spooler_dir = SpoolerDir,
         smtp_address = SmtpAddress,
         smtp_password_digest = SmtpPasswordDigest,
         pop3_address = Pop3Address,
@@ -138,11 +136,15 @@ init(#simulated_player_serv_config{
         http_address = HttpAddress,
         http_password = HttpPassword,
         pki_mode = PkiMode}) ->
-    CertFilename = filename:join([ObscreteDir, Nym, "player/ssl/cert.pem"]),
+    PlayerDir = filename:join([ObscreteDir, Nym, "player"]),
+    TempDir = filename:join([PlayerDir, "temp"]),
+    BufferDir = filename:join([PlayerDir, "buffer"]),
+    SpoolerDir = filename:join([PlayerDir, "maildrop", "spooler"]),
+    CertFilename = filename:join([PlayerDir, "ssl", "cert.pem"]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, PkiPassword, SyncAddress, TempDir, BufferDir, Keys,
+                    [Nym, SyncAddress, TempDir, BufferDir, Keys,
                      GetLocationGenerator, DegreesToMeters, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,

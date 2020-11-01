@@ -16,25 +16,10 @@ get() ->
            name = string,
            typical = <<"johndoe">>,
            reloadable = false}},
-       {'pki-password',
-        #json_type{
-           name = string,
-           typical = <<"smellyfeets">>,
-           reloadable = false}},
        {'sync-address',
         #json_type{
            name = ipaddress_port,
            typical = {{242,45,0,34}, 10000},
-           reloadable = false}},
-       {'temp-dir',
-        #json_type{
-           name = writable_directory,
-           typical = <<"/var/obscrete/players/johndoe/temp">>,
-           reloadable = false}},
-       {'buffer-dir',
-        #json_type{
-           name = writable_directory,
-           typical = <<"/var/obscrete/players/johndoe/buffer">>,
            reloadable = false}},
        {spiridon,
         [{f,
@@ -56,12 +41,6 @@ get() ->
           #json_type{
              name = base64,
              typical = <<"JUitY4g+ezCu1VJ9G11RSnfvKqieoGb+C+Q+CH6f+6EWC/lu+YAey2g9iTcpf/xoa501SFfUTCG1cV16tU/o/VOd18/zE98F7Jd6e/2NeiM6yMrCQrbFnY/cugQPwbKw6jf8lnxiO1+kBdqX5a5Fgs7eTsChd44lJY1QeFM7/rNECWKmPonIY/NwD3mcA3iBpUwmD0RYGdEB6IXFc30xgR2avOAWd0e+5PMnyvVw//OC12vvkZAdtK4oL1gTfHoQ9B5YGILeFmZdScfrAMXaY7BkVqiCpIa+xK86dtqzf0Afa7G/vg3Lj8wf2CXhq0e4+wqXSqBuIVhLn9TxIPe1jfA5r4IfOqCMRqZKmbQD3ltxp7Ojt79leAOl2PARJFOd+XMlISNtJ4WcYXyboeRAzw==">>,
-             reloadable = false}}]},
-       {maildrop,
-        [{'spooler-dir',
-          #json_type{
-             name = writable_directory,
-             typical = <<"/var/obscrete/players/johndoe/maildrop/spooler">>,
              reloadable = false}}]},
        {'smtp-server',
         [{address,
@@ -111,7 +90,12 @@ get() ->
                  end,
              reloadable = false}},
          {global,
-          [{access,
+          [{'password',
+            #json_type{
+               name = string,
+               typical = <<"smellyfeets">>,
+               reloadable = false}},
+           {access,
             #json_type{
                name = atom,
                info = "tor-only, tcp-only or tor-fallback-to-tcp",
