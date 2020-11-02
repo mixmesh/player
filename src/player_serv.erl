@@ -482,6 +482,7 @@ message_handler(
 	  update_neighbours(Simulated, Nym, NeighbourState1),
 	  case maps:get(NAddr, NeighbourPid, undefined) of
 	      Pid when is_pid(Pid) ->
+		  io:format("Kill sync server ~p\n", [Pid]),
 		  exit(Pid, die),
 		  {noreply, State#state{neighbour_state=NeighbourState1}};
 	      _ ->
