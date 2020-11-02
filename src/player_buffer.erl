@@ -40,27 +40,23 @@ new(Dir, Simulated) ->
             {error, invalid_spooler_dir}
     end.
 
-%%
-%% NOTE: I just fill the buffer with at most (PLAYER_BUFFER_MAX_SIZE /
-%% 10) messages for now. Will change that when I have fixed the message
-%% swap exchange in player_sync_serv.erl. Now there will at least be a
-%% lot of messages.
-%%
-
+%% change PLAYER_BUFFER_MAX_SIZE to 100! 
+%% (we will have different sized nodes so must fix this any how)
 fill_buffer(Simulated, {Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
     BufferSize = ets:info(Buffer, size),
-    fill_buffer(Simulated, BufferHandle,
-                trunc(?PLAYER_BUFFER_MAX_SIZE / 10) - BufferSize).
+    fill_buffer(Simulated, BufferHandle, ?PLAYER_BUFFER_MAX_SIZE - BufferSize).
 
 fill_buffer(_Simulated, _BufferHandle, N) when N < 0 ->
     ok;
 fill_buffer(true, BufferHandle, N) ->
+    %% FAST start
     Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
-    _ = push(BufferHandle, Message),
+    _ = push(BufferHandle, <<0:64/unsigned-integer, Message/binary>>),
     fill_buffer(true, BufferHandle, N - 1);
 fill_buffer(false, BufferHandle, N) ->
-    Message = elgamal:urandomize(crypto:strong_rand_bytes(?MAX_MESSAGE_SIZE)),
-    _ = push(BufferHandle, Message),
+    Message = elgamal:urandomize(crypto:strong_rand_bytes(?ENCODED_SIZE)),
+    %% FIXME: DO NOT TO FORGET TO REMOVE message id :-)
+    _ = push(BufferHandle, <<0:64/unsigned-integer, Message/binary>>),
     fill_buffer(false, BufferHandle, N - 1).
 
 %% Exported: delete
