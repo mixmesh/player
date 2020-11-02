@@ -182,7 +182,7 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
 
 sync_messages(PlayerServPid, Socket, Options) ->
     F = Options#player_sync_serv_options.f,
-    N = round(player_serv:buffer_size(PlayerServPid) * F + 0.5),
+    N = trunc(player_serv:buffer_size(PlayerServPid) * F + 0.5),
     case sync_messages_(PlayerServPid, Socket, 0, N, [], Options) of
 	{ok,K} ->
 	    io:format("Synced ~w\n", [K]);
