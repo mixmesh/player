@@ -89,7 +89,7 @@ delete(#buffer_handle{buffer = Buffer,
 
 %% Exported: inspect
 
--spec inspect(buffer_handle(), integer()) ->
+-spec inspect(buffer_handle(), pos_integer()) ->
           {ok, binary()} | {error, unknown_index}.
 
 inspect(#buffer_handle{buffer = Buffer}, Index) ->
@@ -102,7 +102,7 @@ inspect(#buffer_handle{buffer = Buffer}, Index) ->
 
 %% Exported: push
 
--spec push(buffer_handle(), binary()) -> integer().
+-spec push(buffer_handle(), binary()) -> pos_integer().
 
 push(BufferHandle, Message) ->
     push(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
@@ -121,7 +121,7 @@ push(#buffer_handle{buffer = Buffer,
 
 %% Exported: pop
 
--spec pop(buffer_handle(), [integer()]) ->
+-spec pop(buffer_handle(), [pos_integer()]) ->
           {ok, binary()} | {error, no_more_messages}.
 
 pop(#buffer_handle{buffer = Buffer} = BufferHandle, SkipIndices) ->
@@ -146,7 +146,7 @@ pop(#buffer_handle{buffer = Buffer,
 
 %% Exported: replace
 
--spec replace(buffer_handle(), binary()) -> integer().
+-spec replace(buffer_handle(), binary()) -> pos_integer().
 
 replace(BufferHandle, Message) ->
     replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
@@ -189,7 +189,7 @@ make_room(#buffer_handle{buffer = Buffer,
 %% Exported: reserve
 
 -spec reserve(buffer_handle()) ->
-          {ok, reference(), binary()} | {error, not_available}.
+          {ok, pos_integer(), binary()} | {error, not_available}.
 
 reserve(#buffer_handle{buffer = Buffer} = BufferHandle) ->
     reserve(BufferHandle, ets:first(Buffer)).
@@ -201,10 +201,9 @@ reserve(#buffer_handle{buffer = Buffer,
         Index) ->
     case ets:lookup(ReservedIndices, Index) of
         [] ->
-            Ref = make_ref(),
-            true = ets:insert(ReservedIndices, {Index, Ref}),
+            true = ets:insert(ReservedIndices, {Index, true}),
             [{_, Message}] = ets:lookup(Buffer, Index),
-            {ok, Ref, Message};
+            {ok, Index, Message};
         [_] ->
             ?dbg_log({already_reserved, Index}),
             reserve(BufferHandle, ets:next(Buffer, Index))
@@ -212,32 +211,32 @@ reserve(#buffer_handle{buffer = Buffer,
 
 %% Exported: unreserve
 
--spec unreserve(buffer_handle(), reference()) ->
+-spec unreserve(buffer_handle(), pos_integer()) ->
           ok | {error, unknown_reservation}.
 
-unreserve(#buffer_handle{reserved_indices = ReservedIndices}, Ref) ->
-    case ets:match(ReservedIndices, {'$1', Ref}) of
+unreserve(#buffer_handle{reserved_indices = ReservedIndices}, Index) ->
+    case ets:lookup(ReservedIndices, Index) of
         [] ->
             {error, unknown_reservation};
-        [[Index]] ->
+        [_] ->
             true = ets:delete(ReservedIndices, Index),
             ok
     end.
 
 %% Exported: swap
 
--spec swap(buffer_handle(), reference(), binary()) ->
-          {ok, integer()} | {error, unknown_reservation}.
+-spec swap(buffer_handle(), pos_integer(), binary()) ->
+          {ok, pos_integer()} | {error, unknown_reservation}.
 
 swap(#buffer_handle{buffer = Buffer,
                     file_buffer = FileBuffer,
                     own_indices = OwnIndices,
                     reserved_indices = ReservedIndices} = BufferHandle,
-     Ref, ReplacementMessage) ->
-    case ets:match(ReservedIndices, {'$1', Ref}) of
+     Index, ReplacementMessage) ->
+    case ets:lookup(ReservedIndices, Index) of
         [] ->
             {error, unknown_reservation};
-        [[Index]] ->
+        [_] ->
             true = ets:delete(Buffer, Index),
             ok = dets:delete(FileBuffer, Index),
             true = ets:delete(OwnIndices, Index),
@@ -245,18 +244,18 @@ swap(#buffer_handle{buffer = Buffer,
             {ok, push(BufferHandle, ReplacementMessage)}
     end.
 
--spec swap(buffer_handle(), reference()) ->
-          {ok, integer()} | {error, unknown_reservation}.
+-spec swap(buffer_handle(), pos_integer()) ->
+          {ok, pos_integer()} | {error, unknown_reservation}.
 
 swap(#buffer_handle{buffer = Buffer,
                     file_buffer = FileBuffer,
                     own_indices = OwnIndices,
                     reserved_indices = ReservedIndices} = BufferHandle,
-     Ref) ->
-    case ets:match(ReservedIndices, {'$1', Ref}) of
+     Index) ->
+    case ets:lookup(ReservedIndices, Index) of
         [] ->
             {error, unknown_reservation};
-        [[Index]] ->
+        [_] ->
             true = ets:delete(Buffer, Index),
             ok = dets:delete(FileBuffer, Index),
             true = ets:delete(OwnIndices, Index),
@@ -269,7 +268,7 @@ swap(#buffer_handle{buffer = Buffer,
 
 %% Exported: size
 
--spec size(buffer_handle()) -> integer().
+-spec size(buffer_handle()) -> pos_integer().
 
 size(#buffer_handle{buffer = Buffer}) ->
     ets:info(Buffer, size).

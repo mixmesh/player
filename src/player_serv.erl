@@ -29,7 +29,7 @@
 -define(DSYNC(F,A), ok).
 -define(STORED_MESSAGE_DIGESTS, 10000).
 
--type message_id() :: non_neg_integer().
+-type message_id() :: pos_integer().
 -type pick_mode() :: is_nothing |
                      {is_forwarder,
                       {message_not_in_buffer |
@@ -68,7 +68,8 @@
          simulated :: boolean(),
 	 nodis_serv_pid :: pid() | undefined,
          nodis_subscription :: reference() | undefined,
-         message_reservations = [] :: [{pid(), Reservation :: reference()}]}).
+         reserved_message_indices = [] ::
+           [{pid(), Index :: pos_integer()}]}).
 
 %% Exported: start_link
 
@@ -170,7 +171,7 @@ buffer_push(Pid, Message) ->
 %% Exported: buffer_reserve
 
 -spec buffer_reserve(pid()) ->
-          {ok, Reservation::reference(), Message::binary()} |
+          {ok, Index::pos_integer(), Message::binary()} |
           {error, not_available}.
 
 buffer_reserve(Pid) ->
@@ -178,25 +179,25 @@ buffer_reserve(Pid) ->
 
 %% Exported: buffer_unreserve
 
--spec buffer_unreserve(pid(), Reservation::reference()) ->
+-spec buffer_unreserve(pid(), Index::pos_integer()) ->
           ok | {error, unknown_reservation}.
 
-buffer_unreserve(Pid, Reservation) ->
-    serv:call(Pid, {buffer_unreserve, Reservation}).
+buffer_unreserve(Pid, Index) ->
+    serv:call(Pid, {buffer_unreserve, Index}).
 
 %% Exported: buffer_swap
 
--spec buffer_swap(pid(), Reservation::reference(), Message::binary()) ->
+-spec buffer_swap(pid(), Index::pos_integer(), Message::binary()) ->
           {ok, integer()} | {error, unknown_reservation}.
 
-buffer_swap(Pid, Reservation, ReplacementMessage) ->
-    serv:call(Pid, {buffer_swap, Reservation, ReplacementMessage}).
+buffer_swap(Pid, Index, ReplacementMessage) ->
+    serv:call(Pid, {buffer_swap, Index, ReplacementMessage}).
 
--spec buffer_swap(pid(), Reservation::reference()) ->
+-spec buffer_swap(pid(), Index::pos_integer()) ->
           {ok, integer()} | {error, unknown_reservation}.
 
-buffer_swap(Pid, Reservation) ->
-    serv:call(Pid, {buffer_swap, Reservation}).
+buffer_swap(Pid, Index) ->
+    serv:call(Pid, {buffer_swap, Index}).
 
 %% Exported: buffer_size
 
@@ -239,7 +240,7 @@ start_location_updating(Pid) ->
 
 %% Exported: get_unique_id
 
--spec get_unique_id() -> non_neg_integer().
+-spec get_unique_id() -> pos_integer().
 
 get_unique_id() ->
     erlang:unique_integer([positive]).
@@ -305,7 +306,7 @@ message_handler(
          simulated = Simulated,
 	 nodis_serv_pid = NodisServPid,
          nodis_subscription = NodisSubscription,
-         message_reservations = MessageReservations} = State) ->
+         reserved_message_indices = ReservedMessageIndices} = State) ->
     receive
         config_updated ->
             ?daemon_log_tag_fmt(system, "Player noticed a config change", []),
@@ -404,27 +405,27 @@ message_handler(
             {reply, From, BufferIndex, State#state{pick_mode = NewPickMode}};
         {call, {FromPid, _Ref} = From, buffer_reserve} ->
             case player_buffer:reserve(BufferHandle) of
-                {ok, Reservation, ReservedMessage} ->
-                    case lists:keymember(FromPid, 1, MessageReservations) of
+                {ok, Index, ReservedMessage} ->
+                    case lists:keymember(FromPid, 1, ReservedMessageIndices) of
                         true ->
                             ok;
                         false ->
                             link(FromPid)
                     end,
-                    {reply, From, {ok, Reservation, ReservedMessage},
+                    {reply, From, {ok, Index, ReservedMessage},
                      State#state{
-                       message_reservations =
-                           [{FromPid, Reservation}|MessageReservations]}};
+                       reserved_message_indices =
+                           [{FromPid, Index}|ReservedMessageIndices]}};
                 {error, Reason} ->
                     {reply, From, {error, Reason}}
             end;
-        {call, {FromPid, _Ref} = From, {buffer_unreserve, Reservation}} ->
-            case player_buffer:unreserve(BufferHandle, Reservation) of
+        {call, {FromPid, _Ref} = From, {buffer_unreserve, Index}} ->
+            case player_buffer:unreserve(BufferHandle, Index) of
                 ok ->
-                    UpdatedMessageReservations =
-                        lists:keydelete(Reservation, 2, MessageReservations),
+                    UpdatedReservedMessageIndices =
+                        lists:keydelete(Index, 2, ReservedMessageIndices),
                     case lists:keymember(
-                           FromPid, 1, UpdatedMessageReservations) of
+                           FromPid, 1, UpdatedReservedMessageIndices) of
                         true ->
                             ok;
                         false ->
@@ -432,19 +433,19 @@ message_handler(
                     end,
                     {reply, From, ok,
                      State#state{
-                       message_reservations = UpdatedMessageReservations}};
+                       reserved_message_indices =
+                           UpdatedReservedMessageIndices}};
                 {error, Reason} ->
                     {reply, From, {error, Reason}}
             end;
         {call, {FromPid, _Ref} = From,
-         {buffer_swap, Reservation, ReplacementMessage}} ->
-            case player_buffer:swap(
-                   BufferHandle, Reservation, ReplacementMessage) of
+         {buffer_swap, Index, ReplacementMessage}} ->
+            case player_buffer:swap(BufferHandle, Index, ReplacementMessage) of
                 {ok, Index} ->
-                    UpdatedMessageReservations =
-                        lists:keydelete(Reservation, 2, MessageReservations),
+                    UpdatedReservedMessageIndices =
+                        lists:keydelete(Index, 2, ReservedMessageIndices),
                     case lists:keymember(
-                           FromPid, 1, UpdatedMessageReservations) of
+                           FromPid, 1, UpdatedReservedMessageIndices) of
                         true ->
                             ok;
                         false ->
@@ -465,17 +466,18 @@ message_handler(
                     {reply, From, {ok, Index},
                      State#state{
                        pick_mode = NewPickMode,
-                       message_reservations = UpdatedMessageReservations}};
+                       reserved_message_indices =
+                           UpdatedReservedMessageIndices}};
                 {error, Reason} ->
                     {reply, From, {error, Reason}}
             end;
-        {call, {FromPid, _Ref} = From, {buffer_swap, Reservation}} ->
-            case player_buffer:swap(BufferHandle, Reservation) of
+        {call, {FromPid, _Ref} = From, {buffer_swap, Index}} ->
+            case player_buffer:swap(BufferHandle, Index) of
                 {ok, Index} ->
-                    UpdatedMessageReservations =
-                        lists:keydelete(Reservation, 2, MessageReservations),
+                    UpdatedReservedMessageIndices =
+                        lists:keydelete(Index, 2, ReservedMessageIndices),
                     case lists:keymember(
-                           FromPid, 1, UpdatedMessageReservations) of
+                           FromPid, 1, UpdatedReservedMessageIndices) of
                         true ->
                             ok;
                         false ->
@@ -496,7 +498,8 @@ message_handler(
                     {reply, From, {ok, Index},
                      State#state{
                        pick_mode = NewPickMode,
-                       message_reservations = UpdatedMessageReservations}};
+                       reserved_message_indices =
+                           UpdatedReservedMessageIndices}};
                 {error, Reason} ->
                     {reply, From, {error, Reason}}
             end;
@@ -669,21 +672,20 @@ message_handler(
             ok = player_buffer:delete(BufferHandle),
             exit(Reason);
         {'EXIT', Pid, _Reason} = UnknownMessage ->
-            UpdatedMessageReservations =
+            UpdatedReservedMessageIndices =
                 lists:foldl(
-                  fun({ReservationPid, Reservation}, Acc)
-                        when ReservationPid == Pid ->
-                          case player_buffer:unreserve(
-                                 BufferHandle, Reservation) of
+                  fun({ReserverPid, Index}, Acc)
+                        when ReserverPid == Pid ->
+                          case player_buffer:unreserve(BufferHandle, Index) of
                               ok ->
                                   Acc;
                               {error, Reason} ->
                                   ?error_log({unreserve_failed, Reason}),
                                   Acc
                           end;
-                     (MessageReservation, Acc) ->
-                          [MessageReservation|Acc]
-                  end, [], MessageReservations),
+                     (PidAndIndex, Acc) ->
+                          [PidAndIndex|Acc]
+                  end, [], ReservedMessageIndices),
             case maps:get(Pid, NeighbourPid, undefined) of
                 NAddr when is_tuple(NAddr) ->
                     NeighbourPid1 = maps:remove(Pid, NeighbourPid),
@@ -696,12 +698,14 @@ message_handler(
                      State#state{
                        neighbour_pid = NeighbourPid2,
                        neighbour_state = NeighbourState1,
-                       message_reservations = UpdatedMessageReservations}};
+                       reserved_message_indices =
+                           UpdatedReservedMessageIndices}};
                 undefined ->
                     ?error_log({unknown_message, UnknownMessage}),
                     {noreply,
                      State#state{
-                       message_reservations = UpdatedMessageReservations}}
+                       reserved_message_indices =
+                           UpdatedReservedMessageIndices}}
             end;
         %%
         %% Below follows handling of internally generated messages
