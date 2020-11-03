@@ -1,9 +1,8 @@
 -module(player_buffer).
--export([new/2, delete/1]).
--export([push/2, pop/2, replace/2]).
--export([size/1]).
--export([member/2]).
--export([foldl/3]).
+-export([new/1, new/2, delete/1]).
+-export([push/2, pop/2]). %% BEWARE: Will be removed!
+-export([inspect/2, replace/2, reserve/1, unreserve/2, swap/3,
+         swap/2, size/1, member/2, foldl/3]).
 -export_type([buffer_handle/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -13,12 +12,22 @@
 
 -define(LARGEST_POSITIVE_INTEGER, trunc(math:pow(2, 28) / 2)).
 
+-record(buffer_handle,
+        {buffer :: ets:tid(),
+         file_buffer :: reference(),
+         own_indices :: ets:tid(),
+         reserved_indices :: ets:tid()}).
+
+-type buffer_handle() :: #buffer_handle{}.
+
 %% Exported: new
 
--type buffer_handle() :: {ets:tid(), reference(), ets:tid()}.
 -spec new(binary(), boolean()) ->
           {ok, buffer_handle()} |
           {error, invalid_buffer_dir | {file_buffer_corrupt, term()}}.
+
+new(Dir) ->
+    new(Dir, false).
 
 new(Dir, Simulated) ->
     case filelib:is_dir(Dir) of
@@ -30,23 +39,29 @@ new(Dir, Simulated) ->
                     Buffer = ets:new(player_buffer, [ordered_set]),
                     true = ets:from_dets(Buffer, FileBuffer),
                     OwnIndices = ets:new(player_own_indices, []),
-                    BufferHandle = {Buffer, FileBuffer, OwnIndices},
+                    ReservedIndices = ets:new(player_reserved_indices, []),
+                    BufferHandle =
+                        #buffer_handle{
+                           buffer = Buffer,
+                           file_buffer = FileBuffer,
+                           own_indices = OwnIndices,
+                           reserved_indices = ReservedIndices},
                     ok = fill_buffer(Simulated, BufferHandle),
                     {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
             end;
         false ->
-            {error, invalid_spooler_dir}
+            {error, invalid_buffer_dir}
     end.
 
-%% change PLAYER_BUFFER_MAX_SIZE to 100! 
+%% change PLAYER_BUFFER_MAX_SIZE to 100!
 %% (we will have different sized nodes so must fix this any how)
-fill_buffer(Simulated, {Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
+fill_buffer(Simulated, #buffer_handle{buffer = Buffer} = BufferHandle) ->
     BufferSize = ets:info(Buffer, size),
     fill_buffer(Simulated, BufferHandle, ?PLAYER_BUFFER_MAX_SIZE - BufferSize).
 
-fill_buffer(_Simulated, _BufferHandle, N) when N < 0 ->
+fill_buffer(_Simulated, _BufferHandle, N) when N =< 0 ->
     ok;
 fill_buffer(true, BufferHandle, N) ->
     %% FAST start
@@ -63,10 +78,27 @@ fill_buffer(false, BufferHandle, N) ->
 
 -spec delete(buffer_handle()) -> ok | {error, term()}.
 
-delete({Buffer, FileBuffer, OwnIndices}) ->
+delete(#buffer_handle{buffer = Buffer,
+                      file_buffer = FileBuffer,
+                      own_indices = OwnIndices,
+                      reserved_indices = ReservedIndices}) ->
     true = ets:delete(Buffer),
     true = ets:delete(OwnIndices),
+    true = ets:delete(ReservedIndices),
     dets:close(FileBuffer).
+
+%% Exported: inspect
+
+-spec inspect(buffer_handle(), integer()) ->
+          {ok, binary()} | {error, unknown_index}.
+
+inspect(#buffer_handle{buffer = Buffer}, Index) ->
+    case ets:lookup(Buffer, Index) of
+        [] ->
+            {error, unknown_index};
+        [{Index, Message}] ->
+            {ok, Message}
+    end.
 
 %% Exported: push
 
@@ -75,7 +107,9 @@ delete({Buffer, FileBuffer, OwnIndices}) ->
 push(BufferHandle, Message) ->
     push(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
 
-push({Buffer, FileBuffer, _OwnIndices} = BufferHandle, Message, Index) ->
+push(#buffer_handle{buffer = Buffer,
+                    file_buffer = FileBuffer} = BufferHandle,
+     Message, Index) ->
     case ets:lookup(Buffer, Index) of
         [] ->
             true = ets:insert(Buffer, {Index, Message}),
@@ -90,12 +124,15 @@ push({Buffer, FileBuffer, _OwnIndices} = BufferHandle, Message, Index) ->
 -spec pop(buffer_handle(), [integer()]) ->
           {ok, binary()} | {error, no_more_messages}.
 
-pop({Buffer, _FileBuffer, _OwnIndices} = BufferHandle, SkipIndices) ->
+pop(#buffer_handle{buffer = Buffer} = BufferHandle, SkipIndices) ->
     pop(BufferHandle, SkipIndices, ets:first(Buffer)).
 
 pop(_BufferHandle, _SkipIndices, '$end_of_table') ->
     {error, no_more_messages};
-pop({Buffer, FileBuffer, OwnIndices} = BufferHandle, SkipIndices, Index) ->
+pop(#buffer_handle{buffer = Buffer,
+                   file_buffer = FileBuffer,
+                   own_indices = OwnIndices} = BufferHandle,
+    SkipIndices, Index) ->
     case lists:member(Index, SkipIndices) of
         true ->
             pop(BufferHandle, SkipIndices, ets:next(Buffer, Index));
@@ -114,7 +151,10 @@ pop({Buffer, FileBuffer, OwnIndices} = BufferHandle, SkipIndices, Index) ->
 replace(BufferHandle, Message) ->
     replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER)).
 
-replace({Buffer, FileBuffer, OwnIndices} = BufferHandle, Message, Index) ->
+replace(#buffer_handle{buffer = Buffer,
+                       file_buffer = FileBuffer,
+                       own_indices = OwnIndices} = BufferHandle,
+        Message, Index) ->
     case ets:lookup(Buffer, Index) of
         [] ->
             ok = make_room(BufferHandle),
@@ -126,33 +166,117 @@ replace({Buffer, FileBuffer, OwnIndices} = BufferHandle, Message, Index) ->
             replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER))
     end.
 
-make_room({Buffer, _FileBuffer, _OwnIndices} = BufferHandle) ->
+make_room(#buffer_handle{buffer = Buffer} = BufferHandle) ->
     make_room(BufferHandle, ets:first(Buffer)).
 
 make_room(_BufferHandle, '$end_of_table') ->
     ok;
-make_room({Buffer, FileBuffer, OwnIndices} = BufferHandle, Index) ->
-    case ets:lookup(OwnIndices, Index) of
-        [] ->
+make_room(#buffer_handle{buffer = Buffer,
+                         file_buffer = FileBuffer,
+                         own_indices = OwnIndices,
+                         reserved_indices = ReservedIndices} = BufferHandle,
+          Index) ->
+    case {ets:lookup(OwnIndices, Index), ets:lookup(ReservedIndices, Index)} of
+        {[], []} ->
             true = ets:delete(Buffer, Index),
             dets:delete(FileBuffer, Index);
-        [_] ->
-            ?dbg_log({do_not_replace_own_index, Index}),
+        _ ->
+            ?dbg_log({do_not_replace_own_or_reserved_index, Index}),
             make_room(BufferHandle, ets:next(Buffer, Index))
+    end.
+
+%% Exported: reserve
+
+-spec reserve(buffer_handle()) ->
+          {ok, reference(), binary()} | {error, not_available}.
+
+reserve(#buffer_handle{buffer = Buffer} = BufferHandle) ->
+    reserve(BufferHandle, ets:first(Buffer)).
+
+reserve(_BufferHandle, '$end_of_table') ->
+    {error, not_available};
+reserve(#buffer_handle{buffer = Buffer,
+                       reserved_indices = ReservedIndices} = BufferHandle,
+        Index) ->
+    case ets:lookup(ReservedIndices, Index) of
+        [] ->
+            Ref = make_ref(),
+            true = ets:insert(ReservedIndices, {Index, Ref}),
+            [{_, Message}] = ets:lookup(Buffer, Index),
+            {ok, Ref, Message};
+        [_] ->
+            ?dbg_log({already_reserved, Index}),
+            reserve(BufferHandle, ets:next(Buffer, Index))
+    end.
+
+%% Exported: unreserve
+
+-spec unreserve(buffer_handle(), reference()) ->
+          ok | {error, unknown_reservation}.
+
+unreserve(#buffer_handle{reserved_indices = ReservedIndices}, Ref) ->
+    case ets:match(ReservedIndices, {'$1', Ref}) of
+        [] ->
+            {error, unknown_reservation};
+        [[Index]] ->
+            true = ets:delete(ReservedIndices, Index),
+            ok
+    end.
+
+%% Exported: swap
+
+-spec swap(buffer_handle(), reference(), binary()) ->
+          {ok, integer()} | {error, unknown_reservation}.
+
+swap(#buffer_handle{buffer = Buffer,
+                    file_buffer = FileBuffer,
+                    own_indices = OwnIndices,
+                    reserved_indices = ReservedIndices} = BufferHandle,
+     Ref, ReplacementMessage) ->
+    case ets:match(ReservedIndices, {'$1', Ref}) of
+        [] ->
+            {error, unknown_reservation};
+        [[Index]] ->
+            true = ets:delete(Buffer, Index),
+            ok = dets:delete(FileBuffer, Index),
+            true = ets:delete(OwnIndices, Index),
+            true = ets:delete(ReservedIndices, Index),
+            {ok, push(BufferHandle, ReplacementMessage)}
+    end.
+
+-spec swap(buffer_handle(), reference()) ->
+          {ok, integer()} | {error, unknown_reservation}.
+
+swap(#buffer_handle{buffer = Buffer,
+                    file_buffer = FileBuffer,
+                    own_indices = OwnIndices,
+                    reserved_indices = ReservedIndices} = BufferHandle,
+     Ref) ->
+    case ets:match(ReservedIndices, {'$1', Ref}) of
+        [] ->
+            {error, unknown_reservation};
+        [[Index]] ->
+            true = ets:delete(Buffer, Index),
+            ok = dets:delete(FileBuffer, Index),
+            true = ets:delete(OwnIndices, Index),
+            true = ets:delete(ReservedIndices, Index),
+            Message = elgamal:urandomize(crypto:strong_rand_bytes(?ENCODED_SIZE)),
+            %% FIXME: DO NOT TO FORGET TO REMOVE message id :-)
+            {ok, push(BufferHandle, <<0:64/unsigned-integer, Message/binary>>)}
     end.
 
 %% Exported: size
 
 -spec size(buffer_handle()) -> integer().
 
-size({Buffer, _FileBuffer, _OwnIndices}) ->
+size(#buffer_handle{buffer = Buffer}) ->
     ets:info(Buffer, size).
 
 %% Exported: member
 
 -spec member(buffer_handle(), function()) -> boolean().
 
-member({Buffer, _FileBuffer, _OwnIndices}, Do) ->
+member(#buffer_handle{buffer = Buffer}, Do) ->
     member(Buffer, Do, ets:first(Buffer)).
 
 member(_Buffer, _Do, '$end_of_table') ->
@@ -170,7 +294,7 @@ member(Buffer, Do, Index) ->
 
 -spec foldl(buffer_handle(), function(), any()) -> any().
 
-foldl({Buffer, _FileBuffer, _OwnIndices}, Do, Acc) ->
+foldl(#buffer_handle{buffer = Buffer}, Do, Acc) ->
     foldl(Buffer, Do, Acc, ets:first(Buffer)).
 
 foldl(_Buffer, _Do, Acc, '$end_of_table') ->

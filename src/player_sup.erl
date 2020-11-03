@@ -79,7 +79,6 @@ init(normal) ->
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
-    ReceivedMessagesDir = filename:join([PlayerDir, <<"received-messages">>]),
     LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
     CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     PlayerServSpec =
@@ -137,7 +136,6 @@ init(#simulated_player_serv_config{
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
-    ReceivedMessagesDir = filename:join([PlayerDir, <<"received-messages">>]),
     LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
     CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     PlayerServSpec =

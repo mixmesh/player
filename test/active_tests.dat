@@ -1,4 +1,5 @@
 [
  test_pop3_serv,
- test_smtp_serv
+ test_smtp_serv,
+ test_player_buffer
 ].
