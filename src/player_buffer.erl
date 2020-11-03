@@ -163,7 +163,8 @@ replace(#buffer_handle{buffer = Buffer,
             true = ets:insert(OwnIndices, {Index, true}),
             Index;
         _ ->
-            replace(BufferHandle, Message, rand:uniform(?LARGEST_POSITIVE_INTEGER))
+            replace(BufferHandle, Message,
+                    rand:uniform(?LARGEST_POSITIVE_INTEGER))
     end.
 
 make_room(#buffer_handle{buffer = Buffer} = BufferHandle) ->
@@ -260,7 +261,8 @@ swap(#buffer_handle{buffer = Buffer,
             ok = dets:delete(FileBuffer, Index),
             true = ets:delete(OwnIndices, Index),
             true = ets:delete(ReservedIndices, Index),
-            Message = elgamal:urandomize(crypto:strong_rand_bytes(?ENCODED_SIZE)),
+            Message = elgamal:urandomize(
+                        crypto:strong_rand_bytes(?ENCODED_SIZE)),
             %% FIXME: DO NOT TO FORGET TO REMOVE message id :-)
             {ok, push(BufferHandle, <<0:64/unsigned-integer, Message/binary>>)}
     end.
