@@ -678,7 +678,7 @@ message_handler(
                               ok ->
                                   Acc;
                               {error, Reason} ->
-                                  ?dbg_log({unreserve_failed, Reason}),
+                                  ?error_log({unreserve_failed, Reason}),
                                   Acc
                           end;
                      (MessageReservation, Acc) ->
