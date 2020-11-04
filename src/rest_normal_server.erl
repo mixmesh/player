@@ -167,8 +167,10 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
             JsonTerm =
                 lists:map(
                   fun(PublicKey) ->
-                          base64:encode(
-                            elgamal:public_key_to_binary(PublicKey))
+                          [{<<"nym">>, PublicKey#pk.nym},
+                           {<<"public-key">>, 
+                            base64:encode(
+                              elgamal:public_key_to_binary(PublicKey))}]
                   end, PublicKeys),
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key", Nym] ->
