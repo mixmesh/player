@@ -93,36 +93,48 @@ handle_http_get(Socket, Request, Body, Options) ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_get(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
+handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
     Accept = rester_http:accept_media(Request),
     case Tokens of
-	["index.html"] ->
-	    rest_util:response(Socket, Request, rest_util:index(Accept));
-	["index.htm"] ->
-	    rest_util:response(Socket, Request, rest_util:index(Accept));
-	["index"] ->
-	    rest_util:response(Socket, Request, rest_util:index(Accept));
-	[] ->
-	    rest_util:response(Socket, Request, rest_util:index(Accept));
-	["system-time"] ->
-	    rest_util:response(Socket, Request,
-		     {ok, integer_to_list(erlang:system_time(milli_seconds))});
-	["public"] ->
-	    %% list public keys in a table
-	    Tab = ets:foldl(
-		    fun(#pki_user{nym=Name,public_key=Pk}, Acc) ->
-			    MD5 = crypto:hash(
+        ["index.html"] ->
+            rest_util:response(Socket, Request, rest_util:index(Accept));
+        ["index.htm"] ->
+            rest_util:response(Socket, Request, rest_util:index(Accept));
+        ["index"] ->
+            rest_util:response(Socket, Request, rest_util:index(Accept));
+        [] ->
+            rest_util:response(Socket, Request, rest_util:index(Accept));
+        ["system-time"] ->
+            rest_util:response(
+              Socket, Request,
+              {ok, integer_to_list(erlang:system_time(milli_seconds))});
+        ["public"] ->
+            %% list public keys in a table
+            Tab = ets:foldl(
+	 	    fun(#pki_user{nym=Name,public_key=Pk}, Acc) ->
+	 		    MD5 = crypto:hash(
                                     md5, elgamal:public_key_to_binary(Pk)),
-			    Fs = [tl(integer_to_list(B+16#100,16)) ||
-				     <<B>> <= MD5],
-			    [{Name, Fs}|Acc]
-		    end, [], pki_db),
-	    rest_util:response(Socket,Request,
+	 		    Fs = [tl(integer_to_list(B+16#100,16)) ||
+	 			     <<B>> <= MD5],
+	 		    [{Name, Fs}|Acc]
+	 	    end, [], pki_db),
+            rest_util:response(Socket,Request,
                                rest_util:html_doc(rest_util:html_table(Tab)));
 	_ ->
-	    ?dbg_log_fmt("~p not found", [Tokens]),
-	    rest_util:response(Socket, Request, {error, not_found})
+            AbsFilename =
+                filename:join(
+                  [filename:absname(code:priv_dir(obscrete)), "docroot",
+                   tl(Url#url.path)]),
+            case filelib:is_regular(AbsFilename) of
+                true ->
+                    rester_http_server:response_r(
+                      Socket, Request, 200, "OK", {file, AbsFilename},
+                      [{content_type, {url, Url#url.path}}]);
+                false ->
+                    ?dbg_log_fmt("~p not found", [Tokens]),
+                    rest_util:response(Socket, Request, {error, not_found})
+            end
     end;
 %% developer T GET code
 handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
