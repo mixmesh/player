@@ -489,7 +489,9 @@ key_filter_post(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
     JsonTerm =
         lists:map(
           fun(PublicKey) ->
-                  base64:encode(elgamal:public_key_to_binary(PublicKey))
+                  [{<<"nym">>, PublicKey#pk.nym},
+                   {<<"public-key">>,
+                    base64:encode(elgamal:public_key_to_binary(PublicKey))}]
           end, lists:usort(
                  fun(PublicKey1, PublicKey2) ->
                          PublicKey1#pk.nym < PublicKey2#pk.nym
