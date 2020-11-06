@@ -211,28 +211,22 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 		    {_,SecretKey} = Options#player_sync_serv_options.keys,
 		    case elgamal:udecrypt(RMessage, SecretKey) of
 			mismatch ->
-			    %% no scramble here since we overwrite with input message,
-			    %% that will be scrambled
 			    ok = player_serv:buffer_write(PlayerServPid, Index, RMessage),
 			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options);
 			{SenderNym, Signature, DecryptedData} ->
-			    player_serv:buffer_scramble(PlayerServPid, Index),
 			    ok = player_serv:got_message(PlayerServPid, RMessage,
 							 SenderNym, Signature,
 							 DecryptedData),
 			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options)
 		    end;
 		{error, closed} ->
-		    player_serv:buffer_scramble(PlayerServPid, Index),
 		    sync_send_(PlayerServPid, Socket, IndexList, K, Options);
 		{error, Reason} ->
-		    player_serv:buffer_scramble(PlayerServPid, Index),
 		    ?error_log({recv, sync_messages, Reason}),
 		    gen_tcp:close(Socket),
 		    {error, K, Reason}
 	    end;
 	{error, Reason} -> 
-	    player_serv:buffer_scramble(PlayerServPid, Index),
 	    ?error_log({send, sync_messages, Reason}),
 	    gen_tcp:close(Socket),
 	    {error, K, Reason}
@@ -246,10 +240,8 @@ sync_send_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
     {ok,SMessage} = player_serv:buffer_read(PlayerServPid, Index),
     case gen_tcp:send(Socket, SMessage) of
 	ok ->
-	    player_serv:buffer_scramble(PlayerServPid, Index),
 	    sync_send_(PlayerServPid, Socket, IndexList, K+1, Options);
 	{error, Reason} ->
-	    player_serv:buffer_scramble(PlayerServPid, Index),
 	    ?error_log({send, sync_messages, Reason}),
 	    {error, K, Reason}
     end.

@@ -67,13 +67,26 @@ size(#buffer_handle{size=Size}) ->
     Size.
 
 %% read a message from the buffer
-read(#buffer_handle{buffer=Buffer, size=Size}, Index) when
+read(#buffer_handle{simulated=Simulated, buffer=Buffer, size=Size}, Index) when
       is_integer(Index), Index >= 1, Index =< Size ->
     case ets:lookup(Buffer, Index) of
-	[{_,Message}] ->
+	[{_,0,Message}] -> %% fresh message
+	    ets:update_counter(Buffer, Index, 1),  %% mark as read
 	    Message;
+	[{_,_RdC,Message}] -> %% if already read we must scramble
+	    if Simulated ->
+		    Message;
+	       true ->
+		    %% FIXME dets insert? 
+		    elgamal:urandomize(Message)
+	    end;
 	[] ->
-            elgamal:urandomize(crypto:strong_rand_bytes(?ENCODED_SIZE))
+	    Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
+	    if Simulated ->
+		    Message;
+	       true ->
+		    elgamal:urandomize(Message)
+	    end
     end.
 
 %% write a message + messageid to the buffer
@@ -88,11 +101,11 @@ write(#buffer_handle{simulated=Simulated,
 		  true ->
 		       elgamal:urandomize(Message)
 	       end,
-    true = ets:insert(Buffer, {Index, Message1}),
-    ok = dets:insert(FileBuffer, {Index, Message1}).
+    true = ets:insert(Buffer, {Index, 0, Message1}),
+    ok = dets:insert(FileBuffer, {Index, 0, Message1}).
 
 %% scramble a message
-%% we shoulde scramble the message when we fail sending it,
+%% we should scramble the message when we fail sending it,
 %% since it may have been visible on the wire.
 
 scramble(#buffer_handle{simulated=Simulated,
@@ -103,15 +116,16 @@ scramble(#buffer_handle{simulated=Simulated,
 	    ok;
        true ->
 	    case ets:lookup(Buffer, Index) of
-		[{_,Message}] ->
+		[{_,0,_}] ->  %% no need to scramble
+		    ok;
+		[{_,_RdC,Message}] ->
 		    Message1 = elgamal:urandomize(Message),
-		    true = ets:insert(Buffer, {Index, Message1}),
-		    ok = dets:insert(FileBuffer, {Index, Message1});
+		    true = ets:insert(Buffer, {Index,0,Message1}),
+		    ok = dets:insert(FileBuffer, {Index,0,Message1});
 		[] ->
 		    ok
 	    end
     end.
-
 
 %% return a uniformly selected list of F*Size  indices in range 1..Size
 select(Handle=#buffer_handle{ size=Size }, F) when 
