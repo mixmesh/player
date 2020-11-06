@@ -106,7 +106,7 @@ init(normal) ->
     RestServerSpec =
 	#{id => rest_normal_server,
           start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, CertFilename, HttpAddress]}},
+                    [Nym, HttpPassword, TempDir, CertFilename, HttpAddress]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {local_pki_serv, start_link, [LocalPkiDir]}},
@@ -163,7 +163,7 @@ init(#simulated_player_serv_config{
     RestServerSpec =
 	#{id => rest_normal_server,
           start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, CertFilename, HttpAddress]}},
+                    [Nym, HttpPassword, TempDir, CertFilename, HttpAddress]}},
     {_SyncIp,SyncPort} = SyncAddress,
     NodisServSpec =
         #{id => nodis_serv,
