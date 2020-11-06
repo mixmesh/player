@@ -93,7 +93,7 @@ handle_http_get(Socket, Request, Body, Options) ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
     Accept = rester_http:accept_media(Request),
     case Tokens of
@@ -121,6 +121,18 @@ handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
 	 	    end, [], pki_db),
             rest_util:response(Socket,Request,
                                rest_util:html_doc(rest_util:html_table(Tab)));
+	["temp", TempFilename] ->
+            {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
+            AbsFilename = filename:join([TempDir, TempFilename]),
+            case filelib:is_regular(AbsFilename) of
+                true ->
+                    rester_http_server:response_r(
+                      Socket, Request, 200, "OK", {file, AbsFilename},
+                      [{content_type, {url, Url#url.path}}]);
+                false ->
+                    ?dbg_log_fmt("~p not found", [Tokens]),
+                    rest_util:response(Socket, Request, {error, not_found})
+            end;
 	_ ->
             AbsFilename =
                 filename:join(
@@ -368,16 +380,19 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 
 %% /dj/get-config (POST)
 
-get_config_post(Filter) ->
+get_config_post(Filter) when is_list(Filter) ->
     try
         AppSchemas = obscrete_config_serv:get_schemas(),
         {ok, {format, get_config(Filter, AppSchemas)}}
     catch
         throw:{invalid_filter, JsonPath} ->
+            io:format("BAJS: ~w\n", [JsonPath]),
             {error, bad_request,
              io_lib:format("Invalid filter path ~s",
                            [config_serv:json_path_to_string(JsonPath)])}
-    end.
+    end;
+get_config_post(_Filter) ->
+    {error, bad_request, "Invalid filter"}.
 
 get_config(Filter, AppSchemas) ->
     get_config(Filter, AppSchemas, []).
@@ -539,7 +554,7 @@ key_export_post(Options, PkiServPid, Nyms) when is_list(Nyms) ->
     TempFilename = "keys-" ++ ?i2l(erlang:unique_integer([positive])) ++ ".bin",
     {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
     AbsFilename = filename:join([TempDir, TempFilename]),
-    UriPath = filename:join(["temp", TempFilename]),
+    UriPath = filename:join(["/temp", TempFilename]),
     {ok, File} = file:open(AbsFilename, [write, binary]),
     key_export(PkiServPid, Nyms, UriPath, File, erlang:md5_init());
 key_export_post(_Options, _PkiServPid, _Nyms) ->
