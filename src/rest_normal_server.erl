@@ -1,5 +1,5 @@
 -module(rest_normal_server).
--export([start_link/4, parse_key_bundle/1]).
+-export([start_link/5]).
 -export([handle_http_request/4]).
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
@@ -13,7 +13,7 @@
 
 %% Exported: start_link
 
-start_link(Nym, HttpPassword, HttpCertFilename, {IfAddr,Port}) ->
+start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr,Port}) ->
     S0 = [],
     IdleTimeout =
 	case proplists:get_value(idle_timeout, S0, ?IDLE_TIMEOUT) of
@@ -27,7 +27,7 @@ start_link(Nym, HttpPassword, HttpCertFilename, {IfAddr,Port}) ->
 		      end, S0, [port,idle_timeout,send_timeout]),
     ResterHttpArgs =
 	[{request_handler,
-	  {?MODULE, handle_http_request, []}},
+	  {?MODULE, handle_http_request, [{temp_dir, TempDir}]}},
 	 %% FIXME: we should probably only allow digest!
 	 {access, [%% {basic,"",Nym,HttpPassword,"obscrete"},
 		   {digest,"",Nym,HttpPassword,"obscrete"}]},
@@ -37,7 +37,7 @@ start_link(Nym, HttpPassword, HttpCertFilename, {IfAddr,Port}) ->
 	 {nodelay, true},
 	 {reuseaddr, true},
 	 {idle_timeout, IdleTimeout},
-	 {send_timeout, SendTimeout} | S01],
+	 {send_timeout, SendTimeout}|S01],
     ?daemon_log_tag_fmt(system, "Normal REST server for ~s on ~s:~w",
                         [Nym, inet:ntoa(IfAddr), Port]),
     rester_http_server:start_link(Port, ResterHttpArgs).
@@ -350,18 +350,17 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
-                             key_export_post(PkiServPid, JsonTerm))
+                             key_export_post(Options, PkiServPid, JsonTerm))
             end;
         ["key", "import"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
-                JsonTerm ->
+            case Body of
+                {file, Filename} ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
-                             key_import_post(PkiServPid, JsonTerm))
+                                       key_import_post(PkiServPid, Filename));
+                _ ->
+                    rest_util:response(Socket, Request,
+                                       {error, bad_request, "Invalid payload"})
             end;
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
@@ -482,9 +481,9 @@ edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
 %% /dj/key/filter (POST)
 
 key_filter_post(PkiServPid, JsonTerm) ->
-    key_filter_post(PkiServPid, JsonTerm, {[], 100}).
+    key_filter(PkiServPid, JsonTerm, {[], 100}).
 
-key_filter_post(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
+key_filter(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
     JsonTerm =
         lists:map(
@@ -497,22 +496,22 @@ key_filter_post(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
                          PublicKey1#pk.nym < PublicKey2#pk.nym
                  end, PublicKeysAcc)),
     {ok, {format, JsonTerm}};
-key_filter_post(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
+key_filter(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
   when is_binary(SubStringNym) ->
     {ok, PublicKeys} =
         local_pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
-    key_filter_post(PkiServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
-key_filter_post(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
+    key_filter(PkiServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
+key_filter(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
     {error, bad_request, "Invalid filter"}.
 
 %% /dj/key/delete (POST)
 
 key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
-    key_delete_post(PkiServPid, Nyms, []);
+    key_delete(PkiServPid, Nyms, []);
 key_delete_post(_PkiServPid, _JsonTerm) ->
-    {error, bad_request, "Invalid nym"}.
+    {error, bad_request, "Invalid nyms"}.
 
-key_delete_post(_PkiServPid, [], Failures) ->
+key_delete(_PkiServPid, [], Failures) ->
     JsonTerm =
         lists:map(
           fun({Nym, Reason}) ->
@@ -520,108 +519,115 @@ key_delete_post(_PkiServPid, [], Failures) ->
                    {<<"reason">>, local_pki_serv:strerror(Reason)}]
           end, Failures),
     {ok, {format, JsonTerm}};
-key_delete_post(PkiServPid, [Nym|Rest], Failures)
+key_delete(PkiServPid, [Nym|Rest], Failures)
   when is_binary(Nym) ->
     case local_pki_serv:delete(PkiServPid, Nym) of
         ok ->
-            key_delete_post(PkiServPid, Rest, Failures);
+            key_delete(PkiServPid, Rest, Failures);
         {error, Reason} ->
-            key_delete_post(PkiServPid, Rest,
-                            [{Nym, Reason}|Failures])
+            key_delete(PkiServPid, Rest, [{Nym, Reason}|Failures])
     end;
-key_delete_post(PkiServPid, [_|Rest], Failures) ->
-    key_delete_post(PkiServPid, Rest, Failures).
+key_delete(PkiServPid, [_|Rest], Failures) ->
+    key_delete(PkiServPid, Rest, Failures).
 
 %% /dj/key/export (POST)
 
-key_export_post(PkiServPid, Nyms) ->
-    key_export_post(PkiServPid, Nyms, []).
+key_export_post(Options, PkiServPid, <<"all">>) ->
+    {ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
+    key_export_post(Options, PkiServPid, Nyms);
+key_export_post(Options, PkiServPid, Nyms) when is_list(Nyms) ->
+    TempFilename = "keys-" ++ ?i2l(erlang:unique_integer([positive])) ++ ".bin",
+    {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
+    AbsFilename = filename:join([TempDir, TempFilename]),
+    UriPath = filename:join(["temp", TempFilename]),
+    {ok, File} = file:open(AbsFilename, [write, binary]),
+    key_export(PkiServPid, Nyms, UriPath, File, erlang:md5_init());
+key_export_post(_Options, _PkiServPid, _Nyms) ->
+    {error, bad_request, "Invalid nyms"}.
 
-key_export_post(_PkiServPid, [], PublicKeys) ->
-    KeyBundle =
-        lists:map(
-          fun(PublicKey) ->
-                  PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
-                  PublicKeyBinSize = size(PublicKeyBin),
-                  <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>
-          end, PublicKeys),
-    {ok, {format, base64:encode(?l2b(KeyBundle))}};
-key_export_post(PkiServPid, [Nym|Rest], PublicKeys)
+key_export(_PkiServPid, [], UriPath, File, MD5Context) ->
+    Digest = erlang:md5_final(MD5Context),
+    DigestSize = size(Digest),
+    DigestPacket = <<0:16/unsigned-integer,
+                     DigestSize:16/unsigned-integer, Digest/binary>>,
+    ok = file:write(File, DigestPacket),
+    ok = file:close(File),
+    {ok, {format, ?l2b(UriPath)}};
+key_export(PkiServPid, [Nym|Rest], UriPath, File, MD5Context)
   when is_binary(Nym) ->
     case local_pki_serv:read(PkiServPid, Nym) of
         {ok, PublicKey} ->
-            key_export_post(PkiServPid, Rest, [PublicKey|PublicKeys]);
+            PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
+            PublicKeyBinSize = size(PublicKeyBin),
+            Packet = <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
+            ok = file:write(File, Packet),
+            NewMD5Context = erlang:md5_update(MD5Context, Packet),
+            key_export(PkiServPid, Rest, UriPath, File, NewMD5Context);
         {error, no_such_key} ->
-            key_export_post(PkiServPid, Rest, PublicKeys)
+            key_export(PkiServPid, Rest, UriPath, File, MD5Context)
     end;
-key_export_post(_PkiServPid, _Nyms, _PublicKeys) ->
-    {error, bad_request, "Invalid list of nyms"}.
+key_export(_PkiServPid, _Nyms, _UriPath, _File, _MD5Context) ->
+    {error, bad_request, "Invalid nyms"}.
 
 %% /dj/key/import (POST)
 
-key_import_post(PkiServPid, KeyBundle) when is_binary(KeyBundle) ->
-    DecodedKeyBundle =
-        try
-            base64:decode(KeyBundle)
-        catch
-            _:_ ->
-                not_base64
-        end,
-    case DecodedKeyBundle of
-        not_base64 ->
-            {error, bad_request, "Invalid key bundle"};
-        _ ->
-            key_import_post(PkiServPid, DecodedKeyBundle, [])
-    end;
-key_import_post(_PkiServPid, _JsonTerm) ->
-    {error, bad_request, "Invalid key bundle"}.
+key_import_post(PkiServPid, Filename) ->
+    {ok, File} = file:open(Filename, [read, binary]),
+    key_import(PkiServPid, File, erlang:md5_init()).
 
-key_import_post(PkiServPid, <<>>, PublicKeys) ->
-    update_public_keys(PkiServPid, PublicKeys);
-key_import_post(PkiServPid,
-                <<PublicKeyBinSize:16/unsigned-integer,
-                  PublicKeyBin:PublicKeyBinSize/binary,
-                  Rest/binary>>, PublicKeys) ->
-    PublicKey =
-        try
-            elgamal:binary_to_public_key(PublicKeyBin)
-        catch
-            _:_ ->
-                bad_key
-        end,
-    case PublicKey of
-        bad_key ->
-            {error, bad_request, "Invalid key bundle"};
-        _ ->
-            key_import_post(PkiServPid, Rest, [PublicKey|PublicKeys])
-    end;
-key_import_post(_PkiServPid, _KeyBundle, _PublicKeys) ->
-    {error, bad_request, "Invalid key bundle"}.
-
-update_public_keys(_PkiServPid, []) ->
-    ok_204;
-update_public_keys(PkiServPid, [PublicKey|Rest]) ->
-    case local_pki_serv:update(PkiServPid, PublicKey) of
-        ok ->
-            update_public_keys(PkiServPid, Rest);
-        {error, permission_denied} ->
-            {error, no_access}
+key_import(PkiServPid, File, MD5Context) ->
+    case file:read(File, 2) of
+        {ok, <<0:16/unsigned-integer>>} ->
+            case file:read(File, 2) of
+                {ok, <<DigestSize:16/unsigned-integer>>} ->
+                    case file:read(File, DigestSize) of
+                        {ok, Digest} ->
+                            case erlang:md5_final(MD5Context) of
+                                Digest ->
+                                    ok = file:close(File),
+                                    ok_204;
+                                _ ->
+                                    ok = file:close(File),
+                                    {error, bad_request, "Invalid format"}
+                            end;
+                        _ ->
+                            ok = file:close(File),
+                            {error, bad_request, "Invalid format"}
+                    end;
+                _ ->
+                    ok = file:close(File),
+                    {error, bad_request, "Invalid format"}
+            end;
+        {ok, <<PublicKeyBinSize:16/unsigned-integer>>} ->
+            case file:read(File, PublicKeyBinSize) of
+                {ok, PublicKeyBin} ->
+                    PublicKey =
+                        try
+                            elgamal:binary_to_public_key(PublicKeyBin)
+                        catch
+                            _:_ ->
+                                bad_key
+                        end,
+                    case PublicKey of
+                        bad_key ->
+                            ok = file:close(File),
+                            {error, bad_request, "Invalid format"};
+                        _ ->
+                            case local_pki_serv:update(PkiServPid, PublicKey) of
+                                ok ->
+                                    NewMD5Context =
+                                        erlang:md5_update(MD5Context, PublicKeyBin),
+                                    key_import(PkiServPid, File, NewMD5Context);
+                                {error, permission_denied} ->
+                                    {error, no_access}
+                            end
+                    end;
+                _ ->
+                    {error, bad_request, "Invalid format"}
+            end;
+        eof ->
+            ok = file:close(File),
+            ok_204;
+        {error, _Reason} ->
+            {error, bad_request, "Invalid format"}
     end.
-
-%% Exported: parse_key_bundle
-
-parse_key_bundle(KeyBundle) ->
-    try
-        parse_key_bundle(KeyBundle, [])
-    catch
-        _:_ ->
-            bad_format
-    end.
-
-parse_key_bundle(<<>>, Acc) ->
-    Acc;
-parse_key_bundle(<<PublicKeyBinSize:16/unsigned-integer,
-                   PublicKeyBin:PublicKeyBinSize/binary,
-                   Rest/binary>>, Acc) ->
-    PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-    parse_key_bundle(Rest, [PublicKey|Acc]).
