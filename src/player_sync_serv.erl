@@ -182,81 +182,76 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
 
 sync_messages(PlayerServPid, Socket, Options) ->
     F = Options#player_sync_serv_options.f,
-    N = trunc(player_serv:buffer_size(PlayerServPid) * F + 0.5),
-    case sync_messages_(PlayerServPid, Socket, 0, N, [], Options) of
+    IndexList = player_serv:buffer_select(PlayerServPid, F),
+    case sync_messages_(PlayerServPid, Socket, IndexList, 0, Options) of
 	{ok,K} ->
 	    io:format("Synced ~w\n", [K]);
 	{error,K,Error} ->
 	    io:format("Synced ~w, error ~w\n", [K, Error])
     end.
 
-sync_messages_(PlayerServPid, Socket, K, 0, _BufferIndices, Options) ->
+sync_messages_(PlayerServPid, Socket, [], K, Options) ->
     %% we have no more messaages to send so we shutdown our sending side
     %% and read messages until we get a close from the otherside
     %% FIXME: we need total timer here and a max count 
-    ok = gen_tcp:shutdown(Socket, write),
-    sync_recv(PlayerServPid, Socket, K, Options);
-sync_messages_(PlayerServPid, Socket, K, N, BufferIndices, Options) ->
-    %% buffer_peek? I do not want to remove I could receive a replacement 
-    case player_serv:buffer_pop(PlayerServPid, BufferIndices) of
-        {ok, SMessage = <<_SMessageId:64/unsigned-integer, _SEncryptedData/binary>>} ->
-            case gen_tcp:send(Socket, SMessage) of
-		ok ->
-		    MessageSize = 8+?ENCODED_SIZE,
-		    case gen_tcp:recv(Socket, MessageSize, Options#player_sync_serv_options.recv_timeout) of
-			{ok, <<RMessageId:64/unsigned-integer,REncryptedData/binary>> = RMessage} ->
-			    {_,SecretKey} = Options#player_sync_serv_options.keys,
-			    case elgamal:udecrypt(REncryptedData, SecretKey) of
-				mismatch ->
-				    BufferIndex = player_serv:buffer_push(PlayerServPid, RMessage),
-				    sync_messages_(PlayerServPid, Socket, K+1, N-1,
-						   [BufferIndex|BufferIndices], Options);
-				{SenderNym, Signature, DecryptedData} ->
-				    ok = player_serv:got_message(PlayerServPid, RMessageId,
-								 SenderNym, Signature,
-								 DecryptedData),
-				    sync_messages_(PlayerServPid, Socket, K+1, N-1,
-						   BufferIndices, Options)
-			    end;
-			{ok, InvalidMessage} ->
-			    ?error_log({invalid_message, InvalidMessage}),
-			    gen_tcp:close(Socket),
-			    player_serv:buffer_push(PlayerServPid, SMessage),
-			    {error, K, message_corrupt};
-			{error, closed} ->
-			    player_serv:buffer_push(PlayerServPid, SMessage),
-			    sync_send_(PlayerServPid, Socket, K, N, BufferIndices, Options);
-			{error, Reason} ->
-			    ?error_log({recv, sync_messages, Reason}),
-			    gen_tcp:close(Socket),
-			    player_serv:buffer_push(PlayerServPid, SMessage),
-			    {error, K, Reason}
+    case gen_tcp:shutdown(Socket, write) of
+	ok ->
+	    sync_recv(PlayerServPid, Socket, K, Options);
+	{error,Reason} ->
+	    ?error_log({shutdown, sync_messages, Reason}),
+	    {error, K, Reason}
+    end;
+sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
+    {ok,SMessage} = player_serv:buffer_read(PlayerServPid, Index),
+    case gen_tcp:send(Socket, SMessage) of
+	ok ->
+	    case gen_tcp:recv(Socket, ?ENCODED_SIZE,
+			      Options#player_sync_serv_options.recv_timeout) of
+		{ok, RMessage} ->
+		    {_,SecretKey} = Options#player_sync_serv_options.keys,
+		    case elgamal:udecrypt(RMessage, SecretKey) of
+			mismatch ->
+			    %% no scramble here since we overwrite with input message,
+			    %% that will be scrambled
+			    ok = player_serv:buffer_write(PlayerServPid, Index, RMessage),
+			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options);
+			{SenderNym, Signature, DecryptedData} ->
+			    player_serv:buffer_scramble(PlayerServPid, Index),
+			    ok = player_serv:got_message(PlayerServPid, RMessage,
+							 SenderNym, Signature,
+							 DecryptedData),
+			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options)
 		    end;
-		{error, Reason} -> 
-		    ?error_log({send, sync_messages, Reason}),
+		{error, closed} ->
+		    player_serv:buffer_scramble(PlayerServPid, Index),
+		    sync_send_(PlayerServPid, Socket, IndexList, K, Options);
+		{error, Reason} ->
+		    player_serv:buffer_scramble(PlayerServPid, Index),
+		    ?error_log({recv, sync_messages, Reason}),
 		    gen_tcp:close(Socket),
-		    player_serv:buffer_push(PlayerServPid, SMessage),
 		    {error, K, Reason}
-	    end
+	    end;
+	{error, Reason} -> 
+	    player_serv:buffer_scramble(PlayerServPid, Index),
+	    ?error_log({send, sync_messages, Reason}),
+	    gen_tcp:close(Socket),
+	    {error, K, Reason}
     end.
 
-sync_send_(_PlayerServPid, Socket, K, 0, _BufferIndices, _Options) ->
-    %% reading side is close, close when we are done
+sync_send_(_PlayerServPid, Socket, [], K, _Options) ->
+    %% reading side is close, close when we are done sending
     gen_tcp:close(Socket),
     {ok,K};
-sync_send_(PlayerServPid, Socket, K, N, BufferIndices, Options) ->
-    %% buffer_peek? I do not want to remove I could receive a replacement 
-    case player_serv:buffer_pop(PlayerServPid, BufferIndices) of
-        {ok, SMessage = <<_SMessageId:64/unsigned-integer, _SEncryptedData/binary>>} ->
-	    %% push back, since otherside has closed, but continue send
-	    Index = player_serv:buffer_push(PlayerServPid, SMessage),
-            case gen_tcp:send(Socket, SMessage) of
-		ok ->
-		    sync_send_(PlayerServPid, Socket, K+1, N-1, [Index|BufferIndices], Options);
-		{error, Reason} ->
-		    ?error_log({send, sync_messages, Reason}),
-		    {error, K, Reason}
-	    end
+sync_send_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
+    {ok,SMessage} = player_serv:buffer_read(PlayerServPid, Index),
+    case gen_tcp:send(Socket, SMessage) of
+	ok ->
+	    player_serv:buffer_scramble(PlayerServPid, Index),
+	    sync_send_(PlayerServPid, Socket, IndexList, K+1, Options);
+	{error, Reason} ->
+	    player_serv:buffer_scramble(PlayerServPid, Index),
+	    ?error_log({send, sync_messages, Reason}),
+	    {error, K, Reason}
     end.
 
 %% when we have written our messages we wait for other side to terminate
@@ -272,32 +267,26 @@ sync_recv_(_PlayerServPid, Socket, K, 0, _Options) ->
     ?error_log({sync_close, forced_close}),
     {error, K, forced};
 sync_recv_(PlayerServPid, Socket, K, I, Options) ->
-    MessageSize = 8+?ENCODED_SIZE,
-    case gen_tcp:recv(Socket, MessageSize, Options#player_sync_serv_options.recv_timeout) of
+    case gen_tcp:recv(Socket, ?ENCODED_SIZE, 
+		      Options#player_sync_serv_options.recv_timeout) of
 	{error, closed} -> %% we got a close and everything is good!
 	    gen_tcp:close(Socket),
 	    {ok,K};
-	{ok, <<RMessageId:64/unsigned-integer,REncryptedData/binary>>} ->
+	{ok, RMessage} ->
 	    %% EXPERIMENTAL: since testing decrypt is a relative cheap operation we can check
 	    %% for messages to US while trying to sync close with a BIGGER node (but not forever)
 	    {_,SecretKey} = Options#player_sync_serv_options.keys,
-	    case elgamal:udecrypt(REncryptedData, SecretKey) of
+	    case elgamal:udecrypt(RMessage, SecretKey) of
 		mismatch ->
 		    sync_recv_(PlayerServPid, Socket, K, I-1, Options);
 		{SenderNym, Signature, DecryptedData} ->
-		    ok = player_serv:got_message(PlayerServPid, RMessageId,
+		    ok = player_serv:got_message(PlayerServPid, RMessage,
 						 SenderNym, Signature,
 						 DecryptedData),
 		    sync_recv_(PlayerServPid, Socket, K, I-1, Options)
 	    end;
-	{ok, InvalidMessage} ->
-	    ?error_log({invalid_message, InvalidMessage}),
-	    gen_tcp:close(Socket),
-	    {error, K, invalid_message};
-
 	{error, Reason} ->
 	    ?error_log({recv, sync_messages, Reason}),
 	    gen_tcp:close(Socket),
 	    {error, K, Reason}
     end.
-		    
