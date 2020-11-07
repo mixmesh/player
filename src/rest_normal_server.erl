@@ -386,7 +386,6 @@ get_config_post(Filter) when is_list(Filter) ->
         {ok, {format, get_config(Filter, AppSchemas)}}
     catch
         throw:{invalid_filter, JsonPath} ->
-            io:format("BAJS: ~w\n", [JsonPath]),
             {error, bad_request,
              io_lib:format("Invalid filter path ~s",
                            [config_serv:json_path_to_string(JsonPath)])}
@@ -424,6 +423,18 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                             [{Name, base64:encode(Value)}|
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
+                Type when Type == ipv4address_port orelse
+                          Type == ipaddress_port ->
+                    {IpAddress, Port} = Value,
+                    [{Name, ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(IpAddress), Port]))}|
+                     get_config(Rest, AppSchemas, JsonPath)];
+                Type when Type == ipaddress orelse
+                          Type == ipv4address orelse
+                          Type == ipv6address ->
+                    [{Name, ?l2b(inet_parse:ntoa(Value))}|
+                     get_config(Rest, AppSchemas, JsonPath)];
                 _ ->
                     [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
             end
