@@ -649,6 +649,16 @@ key_import(PkiServPid, File, N, MD5Context) ->
                                         erlang:md5_update(MD5Context, Packet),
                                     key_import(
                                       PkiServPid, File, N + 1, NewMD5Context);
+                                {error, no_such_key} ->
+                                    ok = local_pki_serv:create(
+                                           PkiServPid, PublicKey),
+                                    Packet =
+                                        <<PublicKeyBinSize:16/unsigned-integer,
+                                          PublicKeyBin/binary>>,
+                                    NewMD5Context =
+                                        erlang:md5_update(MD5Context, Packet),
+                                    key_import(
+                                      PkiServPid, File, N + 1, NewMD5Context);
                                 {error, permission_denied} ->
                                     {error, no_access}
                             end
