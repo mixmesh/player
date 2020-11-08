@@ -61,16 +61,25 @@ handle_http_get(Socket, Request, Body, Options) ->
 
 handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
-    Accept = rester_http:accept_media(Request),
+    _Accept = rester_http:accept_media(Request),
+    UriPath =
+        case Tokens of
+            [] ->
+                "/wipe_all.html";
+            ["index.html"] ->
+                "/wipe_all.html";
+            _ ->
+                Url#url.path
+        end,
     AbsFilename =
         filename:join(
           [filename:absname(code:priv_dir(obscrete)), "docroot",
-           tl(Url#url.path)]),
+           tl(UriPath)]),
     case filelib:is_regular(AbsFilename) of
         true ->
             rester_http_server:response_r(
               Socket, Request, 200, "OK", {file, AbsFilename},
-              [{content_type, {url, Url#url.path}}]);
+              [{content_type, {url, UriPath}}]);
         false ->
             ?dbg_log_fmt("~p not found", [Tokens]),
             rest_util:response(Socket, Request, {error, not_found})
