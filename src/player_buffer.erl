@@ -1,6 +1,7 @@
 -module(player_buffer).
 -export([new/1, new/3, delete/1]).
--export([read/2, write/3, scramble/2]).
+-export([read/2, write/3]).
+-export([count/2]).
 -export([size/1]).
 -export([select/2]).
 
@@ -11,7 +12,11 @@
 -include_lib("elgamal/include/elgamal.hrl").
 -include("../include/player_buffer.hrl").
 
--define(LARGEST_POSITIVE_INTEGER, trunc(math:pow(2, 28) / 2)).
+%% buffer layout:
+%%  {Index, ReadCount, MD5, Message}
+%% MD5 = <<>> when simulated=false
+%% otherwis MD5 is md5(Message)
+%% 
 
 -record(buffer_handle,
         { simulated = false,
@@ -39,9 +44,12 @@ new(Dir, Size, Simulated) ->
             case dets:open_file({player_buffer, self()},
                                 [{file, ?b2l(BufferFilename)}]) of
                 {ok, FileBuffer} ->
-                    Buffer = ets:new(player_buffer, [ordered_set]),
+		    %% FIXME if FileBuffer exit and size > Size then
+		    %% it may be trimmed down to Size (by deletion)
+		    %% DetsSize = dets:info(FileBuffer, size),
+		    %% ok = trim(DetsSize, Size, FileBuffer),
+                    Buffer = ets:new(player_buffer, []),
                     true = ets:from_dets(Buffer, FileBuffer),
-		    %% maybe trim of some messages when size > max_size?
                     BufferHandle =
                         #buffer_handle{
 			   simulated = Simulated,
@@ -49,7 +57,6 @@ new(Dir, Size, Simulated) ->
                            buffer = Buffer,
                            file_buffer = FileBuffer
 			  },
-                    %% ok = fill_buffer(Simulated, BufferHandle),
                     {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
@@ -57,6 +64,15 @@ new(Dir, Size, Simulated) ->
         false ->
             {error, invalid_buffer_dir}
     end.
+
+%% remove elements when size is changed
+-ifdef(not_used).
+trim(DSize, NewSize, Tab) when DSize > NewSize ->
+    dets:delete(Tab, DSize),
+    trim(DSize-1, NewSize, Tab);
+trim(DSize, NewSize, Tab) ->
+    ok.
+-endif.
 
 %% Exported: size
 
@@ -70,10 +86,10 @@ size(#buffer_handle{size=Size}) ->
 read(#buffer_handle{simulated=Simulated, buffer=Buffer, size=Size}, Index) when
       is_integer(Index), Index >= 1, Index =< Size ->
     case ets:lookup(Buffer, Index) of
-	[{_,0,Message}] -> %% fresh message
+	[{_,0,_MD5,Message}] -> %% fresh message
 	    ets:update_counter(Buffer, Index, 1),  %% mark as read
 	    Message;
-	[{_,_RdC,Message}] -> %% if already read we must scramble
+	[{_,_RdC,_MD5,Message}] -> %% if already read we must scramble
 	    if Simulated ->
 		    Message;
 	       true ->
@@ -96,36 +112,26 @@ write(#buffer_handle{simulated=Simulated,
 		     size=Size}, Index, Message) when
       is_integer(Index), Index >= 1, Index =< Size,
       is_binary(Message), byte_size(Message) =:= ?ENCODED_SIZE ->
-    Message1 = if Simulated ->
-		       Message;
-		  true ->
-		       elgamal:urandomize(Message)
-	       end,
-    true = ets:insert(Buffer, {Index, 0, Message1}),
-    ok = dets:insert(FileBuffer, {Index, 0, Message1}).
-
-%% scramble a message
-%% we should scramble the message when we fail sending it,
-%% since it may have been visible on the wire.
-
-scramble(#buffer_handle{simulated=Simulated,
-			buffer=Buffer, file_buffer=FileBuffer,
-			size=Size}, Index) when
-      is_integer(Index), Index >= 1, Index =< Size ->
     if Simulated ->
-	    ok;
+	    MD5 = erlang:md5(Message),
+	    true = ets:insert(Buffer, {Index, 0, MD5, Message}),
+	    ok = dets:insert(FileBuffer, {Index, 0, MD5, Message});
        true ->
-	    case ets:lookup(Buffer, Index) of
-		[{_,0,_}] ->  %% no need to scramble
-		    ok;
-		[{_,_RdC,Message}] ->
-		    Message1 = elgamal:urandomize(Message),
-		    true = ets:insert(Buffer, {Index,0,Message1}),
-		    ok = dets:insert(FileBuffer, {Index,0,Message1});
-		[] ->
-		    ok
-	    end
+	    Message1 = elgamal:urandomize(Message),
+	    true = ets:insert(Buffer, {Index, 0, <<>>, Message1}),
+	    ok = dets:insert(FileBuffer, {Index, 0, <<>>, Message1})
     end.
+
+%% count number of messages with matching MD5
+count(#buffer_handle{ buffer=Buffer }, MD5) ->
+    ets:foldl(
+      fun({_Index,_RdC,MessageMD5,_Message}, Count) ->
+	      if MD5 =:= MessageMD5 ->
+		      Count+1;
+		 true ->
+		      Count
+	      end
+      end, 0, Buffer).
 
 %% return a uniformly selected list of F*Size  indices in range 1..Size
 select(Handle=#buffer_handle{ size=Size }, F) when 

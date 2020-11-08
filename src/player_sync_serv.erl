@@ -191,7 +191,7 @@ sync_messages(PlayerServPid, Socket, Options) ->
     end.
 
 sync_messages_(PlayerServPid, Socket, [], K, Options) ->
-    %% we have no more messaages to send so we shutdown our sending side
+    %% we have no more messages to send so we shutdown our sending side
     %% and read messages until we get a close from the otherside
     %% FIXME: we need total timer here and a max count 
     case gen_tcp:shutdown(Socket, write) of
@@ -214,13 +214,18 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 			    ok = player_serv:buffer_write(PlayerServPid, Index, RMessage),
 			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options);
 			{SenderNym, Signature, DecryptedData} ->
-			    ok = player_serv:got_message(PlayerServPid, RMessage,
-							 SenderNym, Signature,
+			    ok = player_serv:got_message(PlayerServPid,
+							 RMessage,
+							 SenderNym, 
+							 Signature,
 							 DecryptedData),
-			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options)
+			    sync_messages_(PlayerServPid, Socket, IndexList,
+					   K+1, Options)
 		    end;
 		{error, closed} ->
-		    sync_send_(PlayerServPid, Socket, IndexList, K, Options);
+		    gen_tcp:close(Socket),
+		    {error, K, closed};
+		%% sync_send_(PlayerServPid, Socket, IndexList, K, Options);
 		{error, Reason} ->
 		    ?error_log({recv, sync_messages, Reason}),
 		    gen_tcp:close(Socket),

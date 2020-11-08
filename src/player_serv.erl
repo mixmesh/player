@@ -7,7 +7,7 @@
 -export([buffer_scramble/2]).
 -export([got_message/5]).
 -export([pick_as_source/1]).
--export([send_message/4]).
+-export([send_message/3]).
 -export([start_location_updating/1]).
 -export([get_unique_id/0]).
 -export_type([message_id/0, pick_mode/0]).
@@ -134,8 +134,8 @@ resume(Pid) ->
 
 -spec become_forwarder(pid(), message_id()) -> ok.
 
-become_forwarder(Pid, MessageId) ->
-    serv:cast(Pid, {become_forwarder, MessageId}).
+become_forwarder(Pid, MessageMD5) ->
+    serv:cast(Pid, {become_forwarder, MessageMD5}).
 
 %% Exported: become_nothing
 
@@ -148,15 +148,15 @@ become_nothing(Pid) ->
 
 -spec become_source(pid(), binary(), message_id()) -> ok.
 
-become_source(Pid, TargetNym, MessageId) ->
-    serv:cast(Pid, {become_source, TargetNym, MessageId}).
+become_source(Pid, TargetNym, MessageMD5) ->
+    serv:cast(Pid, {become_source, TargetNym, MessageMD5}).
 
 %% Exported: become_target
 
 -spec become_target(pid(), message_id()) -> ok.
 
-become_target(Pid, MessageId) ->
-    serv:cast(Pid, {become_target, MessageId}).
+become_target(Pid, MessageMD5) ->
+    serv:cast(Pid, {become_target, MessageMD5}).
 
 -spec buffer_read(Pid::pid(), Index::non_neg_integer()) ->
 	  {ok,Message::binary()}.
@@ -208,11 +208,11 @@ pick_as_source(Pid) ->
 
 %% Exported: send_message
 
--spec send_message(pid(), message_id(), binary(), binary()) ->
+-spec send_message(pid(), binary(), binary()) ->
           ok | {error, any()}.
 
-send_message(Pid, MessageId, RecipientNym, Payload) ->
-    serv:call(Pid, {send_message, MessageId, RecipientNym, Payload}).
+send_message(Pid, RecipientNym, Payload) ->
+    serv:call(Pid, {send_message, RecipientNym, Payload}).
 
 %% Exported: start_location_updating
 
@@ -290,8 +290,8 @@ message_handler(
          pki_mode = PkiMode,
          simulated = Simulated,
 	 nodis_serv_pid = NodisServPid,
-         nodis_subscription = NodisSubscription,
-         reserved_message_indices = ReservedMessageIndices} = State) ->
+         nodis_subscription = NodisSubscription
+	} = State) ->
     receive
         config_updated ->
             ?daemon_log_tag_fmt(system, "Player noticed a config change", []),
@@ -302,45 +302,32 @@ message_handler(
             {noreply, State#state{paused = true}};
         {cast, resume} ->
             {noreply, State#state{paused = false}};
-        {cast, {become_forwarder, MessageId}} ->
-            NewPickMode = {is_forwarder, {message_not_in_buffer, MessageId}},
-            case Simulated of
-                true ->
-                    true = player_db:update(
-                             #db_player{nym = Nym, pick_mode = NewPickMode});
-                false ->
-                    true
-            end,
+
+        {cast, {become_forwarder, MessageMD5}} ->
+	    ?dbg_log_fmt("~s has been elected as forwarder (~s)",
+			 [Nym, ?bin2xx(MessageMD5)]),
+            NewPickMode = {is_forwarder, {message_not_in_buffer, MessageMD5}},
+	    update_pick_mode(Simulated,Nym,NewPickMode),
             {noreply, State#state{pick_mode = NewPickMode}};
+
         {cast, become_nothing} ->
-            case Simulated of
-                true ->
-                    true = player_db:update(
-                             #db_player{nym = Nym, pick_mode = is_nothing});
-                false ->
-                    true
-            end,
-            {noreply, State#state{pick_mode = is_nothing}};
-        {cast, {become_source, TargetNym, MessageId}} ->
-            NewPickMode = {is_source, {TargetNym, MessageId}},
-            case Simulated of
-                true ->
-                    true = player_db:update(
-                             #db_player{nym = Nym, pick_mode = NewPickMode});
-                false ->
-                    true
-            end,
+	    update_pick_mode(Simulated,Nym,is_nothing),
+	    {noreply, State#state{pick_mode = is_nothing}};
+
+        {cast, {become_source, TargetNym, MessageMD5}} ->
+	    %% not used any more?
+	    ?dbg_log_fmt("~s has been elected as new source (~s)",
+			 [Nym, ?bin2xx(MessageMD5)]),
+            NewPickMode = {is_source, {TargetNym, MessageMD5}},
+	    update_pick_mode(Simulated,Nym, NewPickMode),
             {noreply, State#state{pick_mode = NewPickMode}};
-        {cast, {become_target, MessageId}} ->
-            NewPickMode = {is_target, MessageId},
-            case Simulated of
-                true ->
-                    true = player_db:update(
-                             #db_player{nym = Nym, pick_mode = NewPickMode});
-                false ->
-                    true
-            end,
-            {noreply, State#state{pick_mode = NewPickMode}};
+
+        {cast, {become_target, MessageMD5}} ->
+	    ?dbg_log_fmt("~s has been elected as new target (~s)",
+			    [Nym, ?bin2xx(MessageMD5)]),
+            NewPickMode = {is_target, MessageMD5},
+	    update_pick_mode(Simulated, Nym, NewPickMode),
+	    {noreply, State#state{pick_mode = NewPickMode}};
 
         {call, From, {buffer_read, Index}} ->
 	    Message = player_buffer:read(BufferHandle, Index),
@@ -349,18 +336,27 @@ message_handler(
         {call, From, {buffer_write, Index, Message}} ->
 	    ok = player_buffer:write(BufferHandle, Index, Message),
 	    if Simulated ->
-		    MD5 = erlang:md5(Message),
+		    TracedMessageMD5 = traced_message(),
+		    Count = count_traced_messages(BufferHandle),
+		    IsForward = case PickMode of
+				    {is_forwarder,_} -> true;
+				    _ -> false
+				end,
 		    NewPickMode =
-			case ets:lookup(player_message, MD5) of
-			    [{_,true}] ->
-				%% this one of the messages we are looking for
-				{is_forwarder, {message_in_buffer, MD5}};
-			    [] ->
-				{is_forwarder, {message_not_in_buffer, MD5}}
+			if IsForward, Count =:= 0 ->
+				%% message overwritten or never in buffer
+				{is_forwarder, {message_not_in_buffer,
+						TracedMessageMD5}};
+			   IsForward, Count > 0 ->
+				{is_forwarder, {message_in_buffer,
+						TracedMessageMD5}};
+			   true ->
+				PickMode  %% keep previous mode
 			end,
 		    true = player_db:update(
-			     #db_player{
+			     #db_player {
 				nym = Nym,
+				count = Count,
 				buffer_size =
 				    player_buffer:size(BufferHandle),
 				pick_mode = NewPickMode}),
@@ -383,7 +379,7 @@ message_handler(
             noreply;
 
         {cast, {got_message, Message, SenderNym, Signature, DecryptedData}} ->
-	    MD5 = erlang:md5(Message), %% for simulated message check
+	    MessageMD5 = erlang:md5(Message),
             DigestedDecryptedData = erlang:md5(DecryptedData),
             case persistent_circular_buffer:exists(MessageDigests,DigestedDecryptedData) of
                 false ->
@@ -399,19 +395,17 @@ message_handler(
                     Mail = DecryptedData,
                     case Verified of
                         true ->
-                            ?daemon_log_tag_fmt(
-                               system,
-                               "~s received a verified message from ~s (~w)",
-                               [Nym, SenderNym, MD5]),
+                            ?daemon_log_fmt(
+                               "~s received a verified message from ~s (~s)",
+                               [Nym, SenderNym, ?bin2xx(MessageMD5)]),
                             Footer = <<"\n\nNOTE: This mail is verified">>,
                             MailWithFooter =
                                 mail_util:inject_footer(Mail, Footer),
                             ok = file:write_file(TempFilename, MailWithFooter);
                         false ->
-                            ?daemon_log_tag_fmt(
-                               system,
-                               "~s received an *unverified* message from ~s (~w)",
-                               [Nym, SenderNym, MD5]),
+                            ?daemon_log_fmt(
+                               "~s received an *unverified* message from ~s (~s)",
+                               [Nym, SenderNym, ?bin2xx(MessageMD5)]),
                             MailWithExtraHeaders =
                                 mail_util:inject_headers(
                                   Mail, [{<<"MT-Priority">>, <<"9">>},
@@ -426,16 +420,10 @@ message_handler(
                     {ok, _} =
                         maildrop_serv:write(MaildropServPid, TempFilename),
                     ok = file:delete(TempFilename),
-                    case Simulated of
-                        true ->
-                            %% true = stats_db:message_received(MD5, SenderNym, Nym);
-			    true;
-                        false ->
-                            true
-                    end,
                     case PickMode of
-                        {is_target, MD5} ->
-                            ?dbg_log({target_received_message, Nym, MD5}),
+                        {is_target, MessageMD5} ->
+                            ?dbg_log_fmt("~w target_received_message (~s)",
+					 [Nym,?bin2xx(MessageMD5)]),
                             simulator_serv:target_received_message(
                               Nym, SenderNym);
                         _ ->
@@ -444,9 +432,9 @@ message_handler(
                     ok = persistent_circular_buffer:add(MessageDigests, DigestedDecryptedData),
                     {noreply, State};
                 true ->
-                    ?daemon_log_tag_fmt(
-                       system, "~s received a duplicated message from ~s (~w)",
-                       [Nym, SenderNym, MD5]),
+                    ?daemon_log_fmt(
+                       "~s received a duplicated message from ~s (~s)",
+                       [Nym, SenderNym, ?bin2xx(MessageMD5)]),
                     case Simulated of
                         true ->
                             %% true = stats_db:message_duplicate_received(
@@ -461,31 +449,33 @@ message_handler(
         {cast, pick_as_source} ->
             {noreply, State#state{picked_as_source = true}};
 
-        {call, From, {send_message, _MessageId, RecipientNym, Mail}} ->
+        {call, From, {send_message, RecipientNym, Payload}} ->
             case read_public_key(PkiServPid, PkiMode, RecipientNym) of
                 {ok, RecipientPublicKey} ->
-                    EncryptedData = elgamal:uencrypt(Mail, RecipientPublicKey, SecretKey),
+                    EncryptedData = elgamal:uencrypt(Payload,
+						     RecipientPublicKey,
+						     SecretKey),
 		    IndexList = player_buffer:select(BufferHandle,?K),
-		    if Simulated -> %% keep track on this message for simulation
-			    MD5 = erlang:md5(EncryptedData),
-			    ets:insert(player_message, {MD5, true});
-		       true ->
-			    ok
-		    end,
+		    MessageMD5 = erlang:md5(EncryptedData),
+		    NewPickMode = {is_source,{RecipientNym,MessageMD5}},
                     ok = write_messages(BufferHandle,EncryptedData,IndexList),
-                    case Simulated of
-                        true ->
+		    Count = player_buffer:count(BufferHandle, MessageMD5),
+		    if Simulated -> %% keep track on this message for simulation
+			    ets:insert(player_message, {MessageMD5, true}),
+                            ok = simulator_serv:elect_target(MessageMD5, 
+							     Nym,
+							     RecipientNym),
                             true = player_db:update(
                                      #db_player{
                                         nym = Nym,
+					count = Count,
                                         buffer_size =
-                                            player_buffer:size(BufferHandle),
-                                        pick_mode = PickMode});
-			%% true = stats_db:message_created(MessageId, Nym, RecipientNym);
-                        false ->
-                            true
-                    end,
-                    {reply, From, ok};
+					    player_buffer:size(BufferHandle),
+                                        pick_mode = NewPickMode});
+		       true ->
+			    ok
+		    end,
+		    {reply, From, ok,State#state{pick_mode = NewPickMode}};
                 {error, Reason} ->
                     {reply, From, {error, Reason}}
             end;
@@ -553,20 +543,6 @@ message_handler(
             ok = player_buffer:delete(BufferHandle),
             exit(Reason);
         {'EXIT', Pid, _Reason} = UnknownMessage ->
-            UpdatedReservedMessageIndices =
-                lists:foldl(
-                  fun({ReserverPid, Index}, Acc)
-                        when ReserverPid == Pid ->
-                          case player_buffer:unreserve(BufferHandle, Index) of
-                              ok ->
-                                  Acc;
-                              {error, Reason} ->
-                                  ?error_log({unreserve_failed, Reason}),
-                                  Acc
-                          end;
-                     (PidAndIndex, Acc) ->
-                          [PidAndIndex|Acc]
-                  end, [], ReservedMessageIndices),
             case maps:get(Pid, NeighbourPid, undefined) of
                 NAddr when is_tuple(NAddr) ->
                     NeighbourPid1 = maps:remove(Pid, NeighbourPid),
@@ -575,18 +551,14 @@ message_handler(
                     nodis:wait(NodisServPid, NAddr),
                     NeighbourState1 = NeighbourState#{ NAddr => wait },
                     update_neighbours(Simulated, Nym, NeighbourState1),
+		    %% update_count(Simulated, Nym, BufferHandle),
                     {noreply,
                      State#state{
                        neighbour_pid = NeighbourPid2,
-                       neighbour_state = NeighbourState1,
-                       reserved_message_indices =
-                           UpdatedReservedMessageIndices}};
+                       neighbour_state = NeighbourState1}};
                 undefined ->
                     ?error_log({unknown_message, UnknownMessage}),
-                    {noreply,
-                     State#state{
-                       reserved_message_indices =
-                           UpdatedReservedMessageIndices}}
+                    {noreply,State}
             end;
         %%
         %% Below follows handling of internally generated messages
@@ -608,7 +580,8 @@ message_handler(
                 {{NextTimestamp, NextX, NextY}, NewLocationGenerator} ->
                     if
                         X == none ->
-                            ?dbg_log({initial_location, NextX, NextY}),
+                            ?dbg_log_tag(location, 
+					 {initial_location, NextX, NextY}),
                             case Simulated of
                                 true ->
                                     true = player_db:add(Nym, NextX, NextY);
@@ -616,8 +589,10 @@ message_handler(
                                     true
                             end;
                         true ->
-                            ?dbg_log({location_updated,
-                                      Nym, X, Y, NextX, NextY}),
+                            ?dbg_log_tag(location,
+					 {location_updated, Nym, 
+					  X,Y,
+					  NextX, NextY}),
                             case Simulated of
                                 true ->
                                     true = player_db:update(
@@ -633,8 +608,9 @@ message_handler(
                                     true
                             end
                     end,
-                    ?dbg_log({will_check_location, Nym,
-                              NextTimestamp - Timestamp}),
+                    ?dbg_log_tag(location,
+				 {will_check_location, Nym,
+				  NextTimestamp - Timestamp}),
                     NextUpdate = trunc((NextTimestamp - Timestamp) * 1000),
                     erlang:send_after(NextUpdate, self(),
                                       {location_updated, NextTimestamp}),
@@ -661,6 +637,36 @@ write_messages(BufferHandle, Message, [Index|IndexList]) ->
     ok = player_buffer:write(BufferHandle, Index, Message),
     write_messages(BufferHandle, Message, IndexList).
 
+traced_message() ->
+    case ets:first(player_message) of
+	'$end_of_table' ->  false;
+	MessageMD5 -> MessageMD5
+    end.
+	
+%% count number of "traced" messages we have in the buffer
+count_traced_messages(BufferHandle) ->
+    case traced_message() of
+	false -> 0;
+	MessageMD5 -> 
+	    player_buffer:count(BufferHandle,MessageMD5)
+    end.
+
+update_count(true, Nym, BufferHandle) ->
+    Count = count_traced_messages(BufferHandle),
+    true = player_db:update(
+	     #db_player {
+		nym = Nym,
+		count = Count
+	       });
+update_count(false, _Nym, _BufferHandle) ->
+    true.
+
+update_pick_mode(true, Nym, Mode) ->
+    true = player_db:update(#db_player{nym = Nym, pick_mode = Mode});
+update_pick_mode(_Simulated,_Nym,_Mode) ->
+    true.
+
+
 update_neighbours(true, Nym, Ns) ->
     true = player_db:update(
 	     #db_player{ nym = Nym,
@@ -679,24 +685,6 @@ get_player_nyms(Ns) ->
     Nyms = simulator_serv:get_player_nyms(Addresses),
     lists:zip(Nyms,States).
 
-%% print_speed(_DegreesToMeters, _X, _Y, _MetersMoved, 0, _NextX, _NextY) ->
-%%     ok;
-%% print_speed(DegreesToMeters, X, Y, MetersMoved, Timestamp, NextX, NextY) ->
-%%     NewMetersMoved =
-%%         if
-%%             X == none ->
-%%                 MetersMoved;
-%%             true ->
-%%                 VectorLengthInMeters =
-%%                     fun(X1, Y1, X2, Y2) ->
-%%                             DegreesToMeters(
-%%                               math:sqrt(math:pow(X2 - X1, 2) +
-%%                                             math:pow(Y2 - Y1, 2)))
-%%                     end,
-%%                 MetersMoved + VectorLengthInMeters(NextX, NextY, X, Y)
-%%         end,
-%%     io:format("~w km/h\n", [NewMetersMoved / (Timestamp / 3600) / 1000]),
-%%     ok.
 
 %%
 %% PKI access functions

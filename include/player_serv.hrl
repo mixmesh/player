@@ -19,6 +19,7 @@
          x = not_set :: number() | not_set,
          y = not_set :: number() | not_set,
          buffer_size = not_set :: integer() | not_set,
+	 count = not_set :: integer() | not_set,
          neighbours = not_set :: [#player{}] | not_set,
          is_zombie = not_set :: boolean() | not_set,
          pick_mode = not_set :: player_serv:pick_mode() | not_set}).

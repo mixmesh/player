@@ -220,8 +220,7 @@ rcpt(#channel{servlet_state = ServletState} = Channel, Args) ->
 %% https://tools.ietf.org/html/rfc2821#section-4.1.1.4
 data(#channel{
         servlet_state =
-            #state{player_serv_pid = PlayerServPid,
-                   simulated = Simulated} = ServletState} = Channel,
+            #state{player_serv_pid = PlayerServPid } = ServletState} = Channel,
      #data{headers = _Headers, filename = Filename, size = Size} = Data) ->
     ?dbg_log({data, Channel, Data}),
     if
@@ -234,31 +233,14 @@ data(#channel{
                 #state{forward_path = not_set} ->
                     #response{status = 554, info = <<"no valid recipients">>};
                 #state{forward_path = ForwardPath} ->
-                    MessageId = player_serv:get_unique_id(),
                     TargetNym =
                         re:replace(ForwardPath, <<"@.*">>, <<"">>,
                                    [{return, binary}]),
-%                    case lists:keysearch(<<"X-OBSCRETE-TRACE">>, 1, Headers) of
-%                        {value, {_, <<"yes">>}} ->
-%                            ok = simulator_serv:elect_source_and_target(
-%                                   MessageId, ServletState#state.nym,
-%                                   TargetNym);
-%                        _ ->
-%                            ok
-%                    end,
-                    case Simulated of
-                        true ->
-                            ok = simulator_serv:elect_source_and_target(
-                                   MessageId, ServletState#state.nym, TargetNym);
-                        false ->
-                            ok
-                    end,
+                    {ok, Payload} = file:read_file(Filename),
                     ?dbg_log({send_mail, ServletState#state.nym, TargetNym,
                               Filename}),
-                    %% FIXME: I need to rewrite player_server to work on files
-                    {ok, Payload} = file:read_file(Filename),
                     case player_serv:send_message(
-                           PlayerServPid, MessageId, TargetNym, Payload) of
+                           PlayerServPid, TargetNym, Payload) of
                         ok ->
                             #response{channel = Channel#channel{mode = helo}};
                         {error, Reason} ->
@@ -266,6 +248,7 @@ data(#channel{
                     end
             end
     end.
+
 
 %% https://tools.ietf.org/html/rfc2821#section-4.1.1.5
 rset(#channel{servlet_state = ServletState} = Channel, Args) ->
