@@ -366,7 +366,7 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             end;
         ["key", "import"] ->
             case Body of
-                {file, Filename} ->
+                {multipart_form_data, [{file, _Headers, Filename}]} ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
                                        key_import_post(PkiServPid, Filename));
@@ -386,7 +386,6 @@ get_config_post(Filter) when is_list(Filter) ->
         {ok, {format, get_config(Filter, AppSchemas)}}
     catch
         throw:{invalid_filter, JsonPath} ->
-            io:format("BAJS: ~w\n", [JsonPath]),
             {error, bad_request,
              io_lib:format("Invalid filter path ~s",
                            [config_serv:json_path_to_string(JsonPath)])}
@@ -424,6 +423,18 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                             [{Name, base64:encode(Value)}|
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
+                Type when Type == ipv4address_port orelse
+                          Type == ipaddress_port ->
+                    {IpAddress, Port} = Value,
+                    [{Name, ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(IpAddress), Port]))}|
+                     get_config(Rest, AppSchemas, JsonPath)];
+                Type when Type == ipaddress orelse
+                          Type == ipv4address orelse
+                          Type == ipv6address ->
+                    [{Name, ?l2b(inet_parse:ntoa(Value))}|
+                     get_config(Rest, AppSchemas, JsonPath)];
                 _ ->
                     [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
             end
@@ -556,41 +567,42 @@ key_export_post(Options, PkiServPid, Nyms) when is_list(Nyms) ->
     AbsFilename = filename:join([TempDir, TempFilename]),
     UriPath = filename:join(["/temp", TempFilename]),
     {ok, File} = file:open(AbsFilename, [write, binary]),
-    key_export(PkiServPid, Nyms, UriPath, File, erlang:md5_init());
+    key_export(PkiServPid, Nyms, UriPath, File, 0, erlang:md5_init());
 key_export_post(_Options, _PkiServPid, _Nyms) ->
     {error, bad_request, "Invalid nyms"}.
 
-key_export(_PkiServPid, [], UriPath, File, MD5Context) ->
+key_export(_PkiServPid, [], UriPath, File, N, MD5Context) ->
     Digest = erlang:md5_final(MD5Context),
     DigestSize = size(Digest),
     DigestPacket = <<0:16/unsigned-integer,
                      DigestSize:16/unsigned-integer, Digest/binary>>,
     ok = file:write(File, DigestPacket),
     ok = file:close(File),
-    {ok, {format, ?l2b(UriPath)}};
-key_export(PkiServPid, [Nym|Rest], UriPath, File, MD5Context)
+    {ok, {format, [{<<"size">>, N}, {<<"uri-path">>, ?l2b(UriPath)}]}};
+key_export(PkiServPid, [Nym|Rest], UriPath, File, N, MD5Context)
   when is_binary(Nym) ->
     case local_pki_serv:read(PkiServPid, Nym) of
         {ok, PublicKey} ->
             PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
             PublicKeyBinSize = size(PublicKeyBin),
-            Packet = <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
+            Packet =
+                <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
             ok = file:write(File, Packet),
             NewMD5Context = erlang:md5_update(MD5Context, Packet),
-            key_export(PkiServPid, Rest, UriPath, File, NewMD5Context);
+            key_export(PkiServPid, Rest, UriPath, File, N + 1, NewMD5Context);
         {error, no_such_key} ->
-            key_export(PkiServPid, Rest, UriPath, File, MD5Context)
+            key_export(PkiServPid, Rest, UriPath, File, N, MD5Context)
     end;
-key_export(_PkiServPid, _Nyms, _UriPath, _File, _MD5Context) ->
+key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
     {error, bad_request, "Invalid nyms"}.
 
 %% /dj/key/import (POST)
 
 key_import_post(PkiServPid, Filename) ->
     {ok, File} = file:open(Filename, [read, binary]),
-    key_import(PkiServPid, File, erlang:md5_init()).
+    key_import(PkiServPid, File, 0, erlang:md5_init()).
 
-key_import(PkiServPid, File, MD5Context) ->
+key_import(PkiServPid, File, N, MD5Context) ->
     case file:read(File, 2) of
         {ok, <<0:16/unsigned-integer>>} ->
             case file:read(File, 2) of
@@ -600,18 +612,18 @@ key_import(PkiServPid, File, MD5Context) ->
                             case erlang:md5_final(MD5Context) of
                                 Digest ->
                                     ok = file:close(File),
-                                    ok_204;
+                                    {ok, {format, N}};
                                 _ ->
                                     ok = file:close(File),
-                                    {error, bad_request, "Invalid format"}
+                                    {error, bad_request, "Digest mismatch"}
                             end;
                         _ ->
                             ok = file:close(File),
-                            {error, bad_request, "Invalid format"}
+                            {error, bad_request, "Invalid digest"}
                     end;
                 _ ->
                     ok = file:close(File),
-                    {error, bad_request, "Invalid format"}
+                    {error, bad_request, "Invalid digest size"}
             end;
         {ok, <<PublicKeyBinSize:16/unsigned-integer>>} ->
             case file:read(File, PublicKeyBinSize) of
@@ -626,23 +638,37 @@ key_import(PkiServPid, File, MD5Context) ->
                     case PublicKey of
                         bad_key ->
                             ok = file:close(File),
-                            {error, bad_request, "Invalid format"};
+                            {error, bad_request, "Not in Base64 format"};
                         _ ->
                             case local_pki_serv:update(PkiServPid, PublicKey) of
                                 ok ->
+                                    Packet =
+                                        <<PublicKeyBinSize:16/unsigned-integer,
+                                          PublicKeyBin/binary>>,
                                     NewMD5Context =
-                                        erlang:md5_update(MD5Context, PublicKeyBin),
-                                    key_import(PkiServPid, File, NewMD5Context);
+                                        erlang:md5_update(MD5Context, Packet),
+                                    key_import(
+                                      PkiServPid, File, N + 1, NewMD5Context);
+                                {error, no_such_key} ->
+                                    ok = local_pki_serv:create(
+                                           PkiServPid, PublicKey),
+                                    Packet =
+                                        <<PublicKeyBinSize:16/unsigned-integer,
+                                          PublicKeyBin/binary>>,
+                                    NewMD5Context =
+                                        erlang:md5_update(MD5Context, Packet),
+                                    key_import(
+                                      PkiServPid, File, N + 1, NewMD5Context);
                                 {error, permission_denied} ->
                                     {error, no_access}
                             end
                     end;
                 _ ->
-                    {error, bad_request, "Invalid format"}
+                    {error, bad_request, "Invalid public key"}
             end;
         eof ->
             ok = file:close(File),
             ok_204;
         {error, _Reason} ->
-            {error, bad_request, "Invalid format"}
+            {error, bad_request, "Invalid public key size"}
     end.
