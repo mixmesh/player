@@ -40,10 +40,47 @@ handle_http_request(Socket, Request, Body, Options) ->
 
 handle_http_request_(Socket, Request, Body, Options) ->
     case Request#http_request.method of
+	'GET' ->
+	    handle_http_get(Socket, Request, Body, Options);
 	'POST' ->
 	    handle_http_post(Socket, Request, Body, Options);
 	_ ->
 	    rest_util:response(Socket, Request, {error, not_allowed})
+    end.
+
+handle_http_get(Socket, Request, Body, Options) ->
+    Url = Request#http_request.uri,
+    case string:tokens(Url#url.path,"/") of
+	["v1" | Tokens] ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1);
+	["dj" | Tokens] ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, dj);
+	Tokens ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
+    end.
+
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
+    _Access = rest_util:access(Socket),
+    Accept = rester_http:accept_media(Request),
+    AbsFilename =
+        filename:join(
+          [filename:absname(code:priv_dir(obscrete)), "docroot",
+           tl(Url#url.path)]),
+    case filelib:is_regular(AbsFilename) of
+        true ->
+            rester_http_server:response_r(
+              Socket, Request, 200, "OK", {file, AbsFilename},
+              [{content_type, {url, Url#url.path}}]);
+        false ->
+            ?dbg_log_fmt("~p not found", [Tokens]),
+            rest_util:response(Socket, Request, {error, not_found})
+    end;
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
+    _Access = rest_util:access(Socket),
+    _Accept = rester_http:accept_media(Request),
+    case Tokens of
+        _ ->
+	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
     end.
 
 handle_http_post(Socket, Request, Body, Options) ->
