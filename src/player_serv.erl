@@ -4,7 +4,6 @@
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
 -export([buffer_read/2, buffer_write/3, buffer_size/1, buffer_select/2]).
--export([buffer_scramble/2]).
 -export([got_message/5]).
 -export([pick_as_source/1]).
 -export([send_message/3]).
@@ -175,13 +174,6 @@ buffer_write(Pid, Index, Message) ->
 
 buffer_size(Pid) ->
     serv:call(Pid, buffer_size).
-
--spec buffer_scramble(Pid::pid(), Index::non_neg_integer()) ->
-	  {ok,Message::binary()}.
-
-buffer_scramble(Pid, Index) ->
-    serv:call(Pid, {buffer_scramble, Index}).
-
 
 %% get a list of messages to send
 -spec buffer_select(pid(), Factor::float()) -> [integer()].
@@ -368,10 +360,6 @@ message_handler(
         {call, From, buffer_size} ->
 	    {reply, From, player_buffer:size(BufferHandle)};
 
-        {call, From, {buffer_scramble, Index}} ->
-	    ok = player_buffer:scramble(BufferHandle, Index),
-	    {reply, From, ok, State};
-
         {call, From, {buffer_select,F}} ->
 	    {reply, From, player_buffer:select(BufferHandle,F)};
 
@@ -551,7 +539,6 @@ message_handler(
                     nodis:wait(NodisServPid, NAddr),
                     NeighbourState1 = NeighbourState#{ NAddr => wait },
                     update_neighbours(Simulated, Nym, NeighbourState1),
-		    %% update_count(Simulated, Nym, BufferHandle),
                     {noreply,
                      State#state{
                        neighbour_pid = NeighbourPid2,
@@ -650,16 +637,6 @@ count_traced_messages(BufferHandle) ->
 	MessageMD5 -> 
 	    player_buffer:count(BufferHandle,MessageMD5)
     end.
-
-update_count(true, Nym, BufferHandle) ->
-    Count = count_traced_messages(BufferHandle),
-    true = player_db:update(
-	     #db_player {
-		nym = Nym,
-		count = Count
-	       });
-update_count(false, _Nym, _BufferHandle) ->
-    true.
 
 update_pick_mode(true, Nym, Mode) ->
     true = player_db:update(#db_player{nym = Nym, pick_mode = Mode});
