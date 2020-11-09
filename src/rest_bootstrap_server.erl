@@ -65,9 +65,9 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
     UriPath =
         case Tokens of
             [] ->
-                "/wipe_all.html";
+                "/wipe.html";
             ["index.html"] ->
-                "/wipe_all.html";
+                "/wipe.html";
             _ ->
                 Url#url.path
         end,
