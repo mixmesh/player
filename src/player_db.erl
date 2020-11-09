@@ -22,6 +22,7 @@ add(Nym, X, Y) ->
                #db_player{nym = Nym,
                           x = X,
                           y = Y,
+			  count = 0,
                           buffer_size = 0,
                           neighbours = [],
                           is_zombie = false,
@@ -32,8 +33,8 @@ add(Nym, X, Y) ->
 update(#db_player{nym = Nym,
                   x = X,
                   y = Y,
-                  buffer_size = BufferSize,
 		  count = Count,
+                  buffer_size = BufferSize,
                   neighbours = Neighbours,
                   is_zombie = IsZombie,
                   pick_mode = PickMode}) ->
