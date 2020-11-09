@@ -95,32 +95,8 @@ handle_http_get(Socket, Request, Body, Options) ->
 
 handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
-    Accept = rester_http:accept_media(Request),
+    _Accept = rester_http:accept_media(Request),
     case Tokens of
-        ["index.html"] ->
-            rest_util:response(Socket, Request, rest_util:index(Accept));
-        ["index.htm"] ->
-            rest_util:response(Socket, Request, rest_util:index(Accept));
-        ["index"] ->
-            rest_util:response(Socket, Request, rest_util:index(Accept));
-        [] ->
-            rest_util:response(Socket, Request, rest_util:index(Accept));
-        ["system-time"] ->
-            rest_util:response(
-              Socket, Request,
-              {ok, integer_to_list(erlang:system_time(milli_seconds))});
-        ["public"] ->
-            %% list public keys in a table
-            Tab = ets:foldl(
-	 	    fun(#pki_user{nym=Name,public_key=Pk}, Acc) ->
-	 		    MD5 = crypto:hash(
-                                    md5, elgamal:public_key_to_binary(Pk)),
-	 		    Fs = [tl(integer_to_list(B+16#100,16)) ||
-	 			     <<B>> <= MD5],
-	 		    [{Name, Fs}|Acc]
-	 	    end, [], pki_db),
-            rest_util:response(Socket,Request,
-                               rest_util:html_doc(rest_util:html_table(Tab)));
 	["temp", TempFilename] ->
             {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
             AbsFilename = filename:join([TempDir, TempFilename]),
@@ -133,16 +109,25 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
                     ?dbg_log_fmt("~p not found", [Tokens]),
                     rest_util:response(Socket, Request, {error, not_found})
             end;
-	_ ->
+	Tokens ->
+            UriPath =
+                case Tokens of
+                    [] ->
+                        "/your_key.html";
+                    ["index.html"] ->
+                        "/your_key.html";
+                    _ ->
+                        Url#url.path
+                end,
             AbsFilename =
                 filename:join(
                   [filename:absname(code:priv_dir(obscrete)), "docroot",
-                   tl(Url#url.path)]),
+                   tl(UriPath)]),
             case filelib:is_regular(AbsFilename) of
                 true ->
                     rester_http_server:response_r(
                       Socket, Request, 200, "OK", {file, AbsFilename},
-                      [{content_type, {url, Url#url.path}}]);
+                      [{content_type, {url, UriPath}}]);
                 false ->
                     ?dbg_log_fmt("~p not found", [Tokens]),
                     rest_util:response(Socket, Request, {error, not_found})
