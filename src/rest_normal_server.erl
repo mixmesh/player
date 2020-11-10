@@ -354,11 +354,9 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
         ["key", "import"] ->
             case Body of
                 {multipart_form_data, FormData} ->
-                    %% There will only be one file here!
-                    {value, {_, _Headers, Filename}} = lists:keysearch(file, 1, FormData),
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
-                                       key_import_post(PkiServPid, Filename));
+                                       key_import_post(PkiServPid, FormData));
                 _ ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
@@ -548,7 +546,7 @@ key_delete(PkiServPid, [_|Rest], Failures) ->
 %% /dj/key/export (POST)
 
 key_export_post(Options, PkiServPid, <<"all">>) ->
-    {ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
+{ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
     key_export_post(Options, PkiServPid, Nyms);
 key_export_post(Options, PkiServPid, Nyms) when is_list(Nyms) ->
     TempFilename = "keys-" ++ ?i2l(erlang:unique_integer([positive])) ++ ".bin",
@@ -587,18 +585,24 @@ key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
 
 %% /dj/key/import (POST)
 
-key_import_post(PkiServPid, Filename) ->
-    key_import_post(PkiServPid, Filename,
-                    fun(PublicKey) ->
-                            case local_pki_serv:update(PkiServPid, PublicKey) of
-                                ok ->
-                                    ok;
-                                {error, no_such_key} ->
-                                    ok = local_pki_serv:create(PkiServPid, PublicKey);
-                                {error, Reason} ->
-                                    {error, Reason}
-                            end
-                    end).
+key_import_post(PkiServPid, FormData) ->
+    case lists:keysearch(file, 1, FormData) of
+        {value, {_, _Headers, Filename}} ->
+            key_import_post(
+              PkiServPid, Filename,
+              fun(PublicKey) ->
+                      case local_pki_serv:update(PkiServPid, PublicKey) of
+                          ok ->
+                              ok;
+                          {error, no_such_key} ->
+                              ok = local_pki_serv:create(PkiServPid, PublicKey);
+                          {error, Reason} ->
+                              {error, Reason}
+                      end
+              end);
+        false ->
+            {error, bad_request, "Missing key-file"}
+    end.
 
 %% Exported: key_import_post
 

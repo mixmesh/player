@@ -382,7 +382,7 @@ key_import_post(FormData) ->
             end,
         case PinSalt of
             bad_format ->
-                {error, bad_request, "Invalid public pin-saly"};
+                {error, bad_request, "Invalid pin-salt"};
             _ ->            
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
@@ -399,7 +399,7 @@ key_import_post(FormData) ->
                         ok = file:close(File),
                         Result;
                     false ->
-                        {error, bad_request, "file parameter is missing"}
+                        {error, bad_request, "Missing key-file"}
                 end
         end
     catch
@@ -420,7 +420,7 @@ sort_form_data(NameValues, [Name|Rest]) ->
 get_form_data_values(_FormData, []) ->
     [];
 get_form_data_values([], [Name|_]) ->
-    throw({error, io_lib:format("~s parameter is missing", [Name])});
+    throw({error, io_lib:format("Missing ~s", [Name])});
 get_form_data_values([{data, Headers, Value}|Rest], Names) ->
     case lists:keysearch(<<"Content-Disposition">>, 1, Headers) of
         {value, {_, <<"form-data; name=", FormName/binary>>}} ->
