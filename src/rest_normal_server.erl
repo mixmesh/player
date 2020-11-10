@@ -667,7 +667,7 @@ key_import(PkiServPid, UpdatePublicKey, File, N, MD5Context) ->
             end;
         eof ->
             ok = file:close(File),
-            ok_204;
+            {error, bad_request, "Bad file format"};
         {error, _Reason} ->
             {error, bad_request, "Invalid public key size"}
     end.
