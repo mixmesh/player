@@ -369,58 +369,73 @@ system_restart_post(_Time) ->
 
 key_import_post(FormData) ->
     try
-        [Nym, ObscreteDir, Pin, PinSalt] =
-            get_form_data_values(
+        [Nym, ObscreteDir, Pin, EncodedPinSalt] =
+            get_form_data(
               FormData,
               [<<"nym">>, <<"obscrete-dir">>, <<"pin">>, <<"pin-salt">>]),
-        case lists:keysearch(file, 1, FormData) of
-            {value, {_, _Headers, Filename}} ->
-                {ok, File, SharedKey} =
-                    local_pki_serv:new_db(Nym, ObscreteDir, Pin, PinSalt),
-                Result =
-                    rest_normal_server:key_import_post(
-                      undefined, Filename,
-                      fun(PublicKey) ->
-                              local_pki_serv:write_to_db(
-                                File, SharedKey, PublicKey)
-                      end),
-                ok = file:close(File),
-                Result;
-            false ->
-                {error, bad_request, "file parameter is missing"}
+        PinSalt =
+            try
+                base64:decode(EncodedPinSalt)
+            catch
+                _:_ ->
+                    bad_format
+            end,
+        case PinSalt of
+            bad_format ->
+                {error, bad_request, "Invalid public pin-saly"};
+            _ ->            
+                case lists:keysearch(file, 1, FormData) of
+                    {value, {_, _Headers, Filename}} ->
+                        {ok, File, SharedKey} =
+                            local_pki_serv:new_db(
+                              Nym, ObscreteDir, Pin, PinSalt),
+                        Result =
+                            rest_normal_server:key_import_post(
+                              undefined, Filename,
+                              fun(PublicKey) ->
+                                      local_pki_serv:write_to_db(
+                                        File, SharedKey, PublicKey)
+                              end),
+                        ok = file:close(File),
+                        Result;
+                    false ->
+                        {error, bad_request, "file parameter is missing"}
+                end
         end
     catch
         throw:{error, Reason} ->
             {error, bad_request, Reason}
     end.
 
-get_form_data_values(FormData, Names) ->
-    get_form_data_values(FormData, Names, []).
+get_form_data(FormData, Names) ->
+    sort_form_data(get_form_data_values(FormData, Names), Names).
 
-get_form_data_values(_FormData, [], Acc) ->
-    lists:reverse(Acc);
-get_form_data_values([], [Name|_], _Acc) ->
+sort_form_data(NameValues, []) ->
+    [];
+sort_form_data(NameValues, [Name|Rest]) ->
+    {value, {_, Value}, RemainingNameValues} =
+        lists:keytake(Name, 1, NameValues),
+    [Value|sort_form_data(RemainingNameValues, Rest)].
+
+get_form_data_values(_FormData, []) ->
+    [];
+get_form_data_values([], [Name|_]) ->
     throw({error, io_lib:format("~s parameter is missing", [Name])});
-get_form_data_values([{data, Headers, Value}|Rest], Names, Acc) ->
+get_form_data_values([{data, Headers, Value}|Rest], Names) ->
     case lists:keysearch(<<"Content-Disposition">>, 1, Headers) of
         {value, {_, <<"form-data; name=", FormName/binary>>}} ->
             StrippedFormName = string:trim(FormName, both, "\""),
             case lists:member(StrippedFormName, Names) of
                 true ->
-                    StrippedValue = string:trim(Value, trailing, "\r\n"),
-                    
-                    io:format("BAJS: ~p\n",
-                              [{Value,
-                                string:trim(Value, trailing, "\r\n")}]),
-
-                    get_form_data_values(
-                      Rest, lists:delete(StrippedFormName, Names),
-                      [StrippedValue|Acc]);
+                    StrippedValue = string:trim(Value, trailing),
+                    [{StrippedFormName, StrippedValue}|
+                     get_form_data_values(
+                       Rest, lists:delete(StrippedFormName, Names))];
                 false ->
-                    get_form_data_values(Rest, Names, Acc)
+                    get_form_data_values(Rest, Names)
             end;
         false ->
-            get_form_data_values(Rest, Names, Acc)
+            get_form_data_values(Rest, Names)
     end;
-get_form_data_values([{file, _Headers, _Filename}|Rest], Names, Acc) ->
-    get_form_data_values(Rest, Names, Acc).
+get_form_data_values([{file, _Headers, _Filename}|Rest], Names) ->
+    get_form_data_values(Rest, Names).
