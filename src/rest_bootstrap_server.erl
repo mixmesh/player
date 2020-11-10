@@ -59,7 +59,7 @@ handle_http_get(Socket, Request, Body, Options) ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
+handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
     _Accept = rester_http:accept_media(Request),
     UriPath =
@@ -146,6 +146,14 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                 JsonTerm ->
                     rest_util:response(Socket, Request,
                                        system_restart_post(JsonTerm))
+            end;
+        ["key", "import"] ->
+            case Body of
+                {multipart_form_data, FormData} ->
+                    rest_util:response(Socket, Request, key_import_post(FormData));
+                _ ->
+                    rest_util:response(Socket, Request,
+                                       {error, bad_request, "Invalid payload"})
             end;
 	_ ->
 	    rest_util:response(Socket, Request, {error, not_found})
@@ -245,15 +253,13 @@ update_config(Config, [{Pattern, Replacement}|Rest]) ->
 
 system_reinstall_post(JsonTerm) ->
     try
-        [EncodedPublicKey, EncodedSecretKey, EncodedKeyBundle, SmtpPassword,
-         Pop3Password, HttpPassword, SyncAddress, SmtpAddress, Pop3Address,
-         HttpAddress, ObscreteDir, Pin] =
+        [EncodedPublicKey, EncodedSecretKey, SmtpPassword, Pop3Password,
+         HttpPassword, SyncAddress, SmtpAddress, Pop3Address, HttpAddress,
+         ObscreteDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"public-key">>, fun erlang:is_binary/1},
                {<<"secret-key">>, fun erlang:is_binary/1},
-               {<<"key-bundle">>, fun erlang:is_binary/1,
-                none},
                {<<"smtp-password">>, fun erlang:is_binary/1},
                {<<"pop3-password">>, fun erlang:is_binary/1},
                {<<"http-password">>, fun erlang:is_binary/1},
@@ -272,16 +278,7 @@ system_reinstall_post(JsonTerm) ->
             try
                 PublicKeyBin = base64:decode(EncodedPublicKey),
                 PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-                case EncodedKeyBundle of
-                    none ->
-                        {PublicKey#pk.nym,
-                         base64:decode(EncodedSecretKey),
-                         EncodedKeyBundle};
-                    _ ->
-                        {PublicKey#pk.nym,
-                         base64:decode(EncodedSecretKey),
-                         base64:decode(EncodedKeyBundle)}
-                end
+                {PublicKey#pk.nym, base64:decode(EncodedSecretKey)}
             catch
                 _:_ ->
                     bad_keys
@@ -289,7 +286,7 @@ system_reinstall_post(JsonTerm) ->
         case UnpackedKeys of
             bad_keys ->
                 throw({error, "Invalid keys"});
-            {Nym, DecodedSecretKey, DecodedKeyBundle} ->
+            {Nym, DecodedSecretKey} ->
                 PinSalt = player_crypto:pin_salt(),
                 SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
                 {ok, EncryptedSecretKey} =
@@ -328,8 +325,6 @@ system_reinstall_post(JsonTerm) ->
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
-                        ok = import_key_bundle(ObscreteDir, Pin, Nym, PinSalt,
-                                               DecodedKeyBundle),
                         {ok, {format, [{<<"nym">>, Nym},
                                        {<<"sync-address">>, SyncAddress},
                                        {<<"smtp-address">>, SmtpAddress},
@@ -350,22 +345,6 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
-import_key_bundle(_ObscreteDir, _Pin, _Nym, _PinSalt, none) ->
-    ok;
-import_key_bundle(ObscreteDir, Pin, Nym, PinSalt, KeyBundle) ->
-    case rest_normal_server:parse_key_bundle(KeyBundle) of
-        bad_format ->
-            throw({error, "Invalid key bundle"});
-        PublicKeys ->
-            case local_pki_serv:import_public_keys(
-                   ObscreteDir, Pin, Nym, PinSalt, PublicKeys) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    throw({error, local_pki_serv:strerror(Reason)})
-            end
-    end.
-
 %% /dj/system/restart (POST)
 
 system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
@@ -374,21 +353,74 @@ system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
 system_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-%% TEST
+%% /dj/key/import (POST)
 
-%% clear(EncodedPublicKey, EncodedSecretKey) ->
-%%      {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-%%       elgamal:binary_to_secret_key(base64:decode(EncodedSecretKey))}.
+%% {multipart_form_data,[{data,[{<<"Content-Disposition">>,
+%%                                     <<"form-data; name=\"c\"">>}],
+%%                                   <<"d\r\n">>},
+%%                             {data,[{<<"Content-Disposition">>,
+%%                                     <<"form-data; name=\"a\"">>}],
+%%                                   <<"b\r\n">>},
+%%                             {file,[{<<"Content-Type">>,
+%%                                     <<"application/octet-stream">>},
+%%                                    {<<"Content-Disposition">>,
+%%                                     <<"form-data; name=\"key-file\"; filename=\"keys-6.bin\"">>}],
+%%                                   "/tmp/form-data-8"}]}
 
-%% clear() ->
-%%     clear(<<"BWFsaWNlBbqW75jjJ0aPtaq1zGPObUc7ZQ2WIwIRbX2bkVyOkeIkAC9Hg0oc+J7BD\/RG04TDvd1fETcpmJpyvV8QyeKJ3B3BMHi+LPWSRY60yX1XoA\/1A1iuIxTnt22Q68iXyMMlZvA+ivmNxJlsqN3PB2KOch45KkNzi9Hez9u7KTZBhp3d">>,
-%%           <<"BWFsaWNlgMwhWxEO5Ovn0OpNnN62Mu9nvL7Zn1mzlgSBkfC2zZQII\/otb+1jPqLMCDQlFKqNEXGy\/N1PUhotV3w7JBitwsZSUeGfVi2gLJFEkrZ6tGjrUoN3eB65JIzpfQirlLX6oCO5Ab1t4rOmD4BsHvA+lYBbYw3QihArIGqcTyNrbiC1BbqW75jjJ0aPtaq1zGPObUc7ZQ2WIwIRbX2bkVyOkeIkAC9Hg0oc+J7BD\/RG04TDvd1fETcpmJpyvV8QyeKJ3B3BMHi+LPWSRY60yX1XoA\/1A1iuIxTnt22Q68iXyMMlZvA+ivmNxJlsqN3PB2KOch45KkNzi9Hez9u7KTZBhp3d">>).
+key_import_post(FormData) ->
+    try
+        [Nym, ObscreteDir, Pin, PinSalt] =
+            get_form_data_values(
+              FormData,
+              [<<"nym">>, <<"obscrete-dir">>, <<"pin">>, <<"pin-salt">>]),
+        case lists:keysearch(file, 1, FormData) of
+            {value, {_, _Headers, Filename}} ->
+                {ok, File, SharedKey} =
+                    local_pki_serv:new_db(Nym, ObscreteDir, Pin, PinSalt),
+                Result =
+                    rest_normal_server:key_import_post(
+                      undefined, Filename,
+                      fun(PublicKey) ->
+                              local_pki_serv:write_to_db(
+                                File, SharedKey, PublicKey)
+                      end),
+                ok = file:close(File),
+                Result;
+            false ->
+                {error, bad_request, "file parameter is missing"}
+        end
+    catch
+        throw:{error, Reason} ->
+            {error, bad_request, Reason}
+    end.
 
-%% cipher(EncodedPublicKey, Pin, EncodedPinSalt, EncodedEncryptedSecretKey) ->
-%%      DecodedPinSalt = base64:decode(EncodedPinSalt),
-%%      SharedKey = player_crypto:pin_to_shared_key(Pin, DecodedPinSalt),
-%%      DecodedEncryptedSecretKey = base64:decode(EncodedEncryptedSecretKey),
-%%      {ok, DecryptedSecretKey} =
-%%          player_crypto:shared_decrypt(SharedKey, DecodedEncryptedSecretKey),
-%%      {elgamal:binary_to_public_key(base64:decode(EncodedPublicKey)),
-%%       elgamal:binary_to_secret_key(DecryptedSecretKey)}.
+get_form_data_values(FormData, Names) ->
+    get_form_data_values(FormData, Names, []).
+
+get_form_data_values(_FormData, [], Acc) ->
+    lists:reverse(Acc);
+get_form_data_values([], [Name|_], _Acc) ->
+    throw({error, io_lib:format("~s parameter is missing", [Name])});
+get_form_data_values([{data, Headers, Value}|Rest], Names, Acc) ->
+    case lists:keysearch(<<"Content-Disposition">>, 1, Headers) of
+        {value, {_, <<"form-data; name=", FormName/binary>>}} ->
+            StrippedFormName = string:trim(FormName, both, "\""),
+            case lists:member(StrippedFormName, Names) of
+                true ->
+                    StrippedValue = string:trim(Value, trailing, "\r\n"),
+                    
+                    io:format("BAJS: ~p\n",
+                              [{Value,
+                                string:trim(Value, trailing, "\r\n")}]),
+
+                    get_form_data_values(
+                      Rest, lists:delete(StrippedFormName, Names),
+                      [StrippedValue|Acc]);
+                false ->
+                    get_form_data_values(Rest, Names, Acc)
+            end;
+        false ->
+            get_form_data_values(Rest, Names, Acc)
+    end;
+get_form_data_values([{file, _Headers, _Filename}|Rest], Names, Acc) ->
+    get_form_data_values(Rest, Names, Acc).

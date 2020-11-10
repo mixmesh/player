@@ -1,6 +1,8 @@
 -module(rest_normal_server).
 -export([start_link/5]).
+-export([key_import_post/3]).
 -export([handle_http_request/4]).
+
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("rester/include/rester.hrl").
@@ -351,7 +353,9 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
             end;
         ["key", "import"] ->
             case Body of
-                {multipart_form_data, [{file, _Headers, Filename}]} ->
+                {multipart_form_data, FormData} ->
+                    %% There will only be one file here!
+                    {value, {_, _Headers, Filename}} = lists:keysearch(file, 1, FormData),
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
                                        key_import_post(PkiServPid, Filename));
@@ -584,10 +588,25 @@ key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
 %% /dj/key/import (POST)
 
 key_import_post(PkiServPid, Filename) ->
-    {ok, File} = file:open(Filename, [read, binary]),
-    key_import(PkiServPid, File, 0, erlang:md5_init()).
+    key_import_post(PkiServPid, Filename,
+                    fun(PublicKey) ->
+                            case local_pki_serv:update(PkiServPid, PublicKey) of
+                                ok ->
+                                    ok;
+                                {error, no_such_key} ->
+                                    ok = local_pki_serv:create(PkiServPid, PublicKey);
+                                {error, Reason} ->
+                                    {error, Reason}
+                            end
+                    end).
 
-key_import(PkiServPid, File, N, MD5Context) ->
+%% Exported: key_import_post
+
+key_import_post(PkiServPid, Filename, UpdatePublicKey) ->
+    {ok, File} = file:open(Filename, [read, binary]),
+    key_import(PkiServPid, UpdatePublicKey, File, 0, erlang:md5_init()).
+
+key_import(PkiServPid, UpdatePublicKey, File, N, MD5Context) ->
     case file:read(File, 2) of
         {ok, <<0:16/unsigned-integer>>} ->
             case file:read(File, 2) of
@@ -625,7 +644,7 @@ key_import(PkiServPid, File, N, MD5Context) ->
                             ok = file:close(File),
                             {error, bad_request, "Not in Base64 format"};
                         _ ->
-                            case local_pki_serv:update(PkiServPid, PublicKey) of
+                            case UpdatePublicKey(PublicKey) of
                                 ok ->
                                     Packet =
                                         <<PublicKeyBinSize:16/unsigned-integer,
@@ -633,17 +652,8 @@ key_import(PkiServPid, File, N, MD5Context) ->
                                     NewMD5Context =
                                         erlang:md5_update(MD5Context, Packet),
                                     key_import(
-                                      PkiServPid, File, N + 1, NewMD5Context);
-                                {error, no_such_key} ->
-                                    ok = local_pki_serv:create(
-                                           PkiServPid, PublicKey),
-                                    Packet =
-                                        <<PublicKeyBinSize:16/unsigned-integer,
-                                          PublicKeyBin/binary>>,
-                                    NewMD5Context =
-                                        erlang:md5_update(MD5Context, Packet),
-                                    key_import(
-                                      PkiServPid, File, N + 1, NewMD5Context);
+                                      PkiServPid, UpdatePublicKey, File, N + 1,
+                                      NewMD5Context);
                                 {error, permission_denied} ->
                                     {error, no_access}
                             end
