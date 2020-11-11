@@ -270,10 +270,10 @@ key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
         _ ->
             case local_pki_serv:update(PkiServPid, PublicKey) of
                 ok ->
-                    {ok, "Key has been updated"};
+                    {ok, {format, PublicKey#pk.nym}};
                 {error, no_such_key} ->
                     ok = local_pki_serv:create(PkiServPid, PublicKey),
-                    {ok, "Key has been added"};
+                    {ok, {format, PublicKey#pk.nym}};
                 {error, permission_denied} ->
                     {error, no_access}
             end
