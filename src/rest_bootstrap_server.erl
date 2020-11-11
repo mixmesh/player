@@ -150,7 +150,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
         ["key", "import"] ->
             case Body of
                 {multipart_form_data, FormData} ->
-                    rest_util:response(Socket, Request, key_import_post(FormData));
+                    rest_util:response(Socket, Request,
+                                       key_import_post(FormData));
                 _ ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
@@ -189,6 +190,8 @@ system_wipe_post(JsonTerm) ->
                     filename:join(
                       [code:priv_dir(player), <<"obscrete.conf.src">>]),
                 {ok, SourceConfig} = file:read_file(SourceConfigFilename),
+                {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
+                SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
                 EncodedPublicKey = base64:encode(PublicKey),
                 EncodedSecretKey = base64:encode(SecretKey),
                 EncodedEncryptedSecretKey = base64:encode(EncryptedSecretKey),
@@ -196,7 +199,9 @@ system_wipe_post(JsonTerm) ->
                 TargetConfig =
                     update_config(
                       SourceConfig,
-                      [{<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
+                      [{<<"@@INITIALIZATION-TIME@@">>,
+                        ?i2b(trunc(SecondsSinceEpoch))},
+                       {<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
                        {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
                        {<<"@@NYM@@">>, Nym},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,
@@ -287,6 +292,8 @@ system_reinstall_post(JsonTerm) ->
             bad_keys ->
                 throw({error, "Invalid keys"});
             {Nym, DecodedSecretKey} ->
+                {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
+                SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
                 PinSalt = player_crypto:pin_salt(),
                 SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
                 {ok, EncryptedSecretKey} =
@@ -300,7 +307,9 @@ system_reinstall_post(JsonTerm) ->
                 TargetConfig =
                     update_config(
                       SourceConfig,
-                      [{<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
+                      [{<<"@@INITIALIZATION-TIME@@">>,
+                        ?i2b(trunc(SecondsSinceEpoch))},
+                       {<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
                        {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
                        {<<"@@NYM@@">>, Nym},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,

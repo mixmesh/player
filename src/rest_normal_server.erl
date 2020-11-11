@@ -12,6 +12,7 @@
 
 -define(IDLE_TIMEOUT, infinity). %% 60 * 1000).
 -define(SEND_TIMEOUT, infinity). %% default send timeout
+-define(ONE_HOUR, 3600).
 
 %% Exported: start_link
 
@@ -148,17 +149,31 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
     _Access = rest_util:access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
+        ["seconds-since-initialization"] ->
+            {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
+            SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
+            InitializationTime = config:lookup([system, 'initialization-time']),
+            rest_util:response(
+              Socket, Request,
+              {ok, {format, SecondsSinceEpoch - InitializationTime}});            
         ["player"] ->
-            %% FIXME: Mask the secret key one hour after box initialization
             Nym = config:lookup([player, nym]),
             [PublicKey, SecretKey] =
                 config:lookup_children(['public-key', 'secret-key'],
                                        config:lookup([player, spiridon])),
             {ok, DecryptedSecretKey} = shared_decrypt_secret_key(SecretKey),
+            {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
+            SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
+            InitializationTime = config:lookup([system, 'initialization-time']),
             JsonTerm =
                 [{<<"nym">>, Nym},
-                 {<<"public-key">>, base64:encode(PublicKey)},
-                 {<<"secret-key">>, base64:encode(DecryptedSecretKey)}],
+                 {<<"public-key">>, base64:encode(PublicKey)}] ++
+                if
+                    SecondsSinceEpoch - InitializationTime < ?ONE_HOUR ->
+                        [{<<"secret-key">>, base64:encode(DecryptedSecretKey)}];
+                    true ->
+                        []
+                end,
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key"] ->
             [PkiServPid] = get_worker_pids([pki_serv], Options),

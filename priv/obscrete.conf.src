@@ -1,5 +1,6 @@
 {
     "system": {
+        "initialization-time": @@INITIALIZATION-TIME@@,
         "obscrete-dir": "@@OBSCRETE-DIR@@",
         "pin": "@@PIN@@",
         "pin-salt": "@@PIN-SALT@@"
