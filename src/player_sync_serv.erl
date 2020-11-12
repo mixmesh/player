@@ -1,5 +1,5 @@
 -module(player_sync_serv).
--export([connect/3]).
+-export([connect/4]).
 -export([start_link/5, stop/1]).
 
 -include_lib("apptools/include/log.hrl").
@@ -7,12 +7,10 @@
 -include("../include/player_buffer.hrl").
 -include("../include/player_sync_serv.hrl").
 
-%%-define(DSYNC(F,A), io:format((F),(A))).
--define(DSYNC(F,A), ok).
--define(FSYNC(F,A), io:format((F),(A))).
-
 -define(SEND_TIMEOUT, 5000).  %% never wait more than T1 ms to send a message
--define(MAX_CLOSE_MESSAGES, (?PLAYER_BUFFER_MAX_SIZE div 10)).
+-define(SND_BUFFER_SIZE, ?ENCODED_SIZE).
+-define(REC_BUFFER_SIZE, ?ENCODED_SIZE).
+-define(MAX_CLOSE_MESSAGES, 2).
 %% Debug: length([erlang:port_info(P)||P <- erlang:ports()]).
 
 -record(state,
@@ -25,34 +23,35 @@
 
 %% Exported: connect
 
-connect(PlayerServPid, NAddr, Options) ->
+connect(PlayerServPid, NodisServPid, NAddr, Options) ->
     Pid = proc_lib:spawn_link(
-            fun() -> connect_now(PlayerServPid, NAddr, Options) end),
+            fun() -> connect_now(PlayerServPid, NodisServPid, NAddr,
+				 Options) end),
     {ok, Pid}.
 
-connect_now(PlayerServPid, NAddr, #player_sync_serv_options{
-				     sync_address = SyncAddress,
-				     %% ip_address = IpAddress,
-				     connect_timeout = ConnectTimeout
-				    } = Options) ->
+connect_now(PlayerServPid, NodisServPid, 
+	    NAddr, #player_sync_serv_options{
+		      sync_address = SyncAddress,
+		      %% ip_address = IpAddress,
+		      connect_timeout = ConnectTimeout
+		     } = Options) ->
     {_, SrcPort} = SyncAddress,
     {DstIP,DstPort} = NAddr,
-    ?DSYNC("Connect: ~p naddr=~p\n", [SyncAddress, NAddr]),
     case gen_tcp:connect(DstIP, DstPort,
                          [{active, false},
 			  {nodelay, true},
 			  {port,SrcPort+1},
-			  {sndbuf, 8+?ENCODED_SIZE},
+			  {sndbuf, ?SND_BUFFER_SIZE},
+			  {recbuf, ?REC_BUFFER_SIZE},
 			  {send_timeout, ?SEND_TIMEOUT},
 			  binary],
                          ConnectTimeout) of
         {ok, Socket} ->
-	    sync_messages(PlayerServPid, Socket, Options);
+	    PlayerServPid ! {sync, self(), NAddr, {up,connect}},
+	    sync_messages(PlayerServPid, NodisServPid, NAddr, Socket, Options);
         {error, eaddrinuse} ->
 	    ok;
         {error, Reason} ->
-	    ?FSYNC("Connect fail ~p: ~p naddr:~p\n",
-		   [Reason, SyncAddress, NAddr]),
             ?error_log({connect, Reason})
     end.
 
@@ -90,7 +89,8 @@ init(Parent, Nym, Port,
 			  {ifaddr, IpAddress},
 			  {active, false},
 			  {nodelay, true},
-			  {sndbuf, 8+?ENCODED_SIZE},
+			  {sndbuf, ?SND_BUFFER_SIZE},
+			  {recbuf, ?REC_BUFFER_SIZE},
 			  {send_timeout, ?SEND_TIMEOUT},
 			  binary],
     {ok, ListenSocket} =
@@ -169,39 +169,41 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
     case nodis:get_state(NodisServPid, NAddr) of
 	up when SyncAddress < NAddr ->
 	    Owner ! accepted,
-	    ?DSYNC("Accept: ~p, naddr=~p\n", [SyncAddress,NAddr]),
-	    sync_messages(PlayerServPid, Socket, Options);
+	    PlayerServPid ! {sync, self(), NAddr, {up,accept}},
+	    sync_messages(PlayerServPid, NodisServPid, NAddr, Socket, Options);
 	_State -> %% SyncAddress > NAddr | State != up
 	    %% try to close nicly
 	    ok = gen_tcp:shutdown(Socket, write),
-	    sync_recv(PlayerServPid, Socket, 0, Options),
-	    ?DSYNC("Reject: ~p, naddr=~p:~s\n", [SyncAddress, NAddr, _State]),
+	    sync_recv(PlayerServPid, NAddr, Socket, 0, Options),
 	    acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket)
     end.
 
 
-sync_messages(PlayerServPid, Socket, Options) ->
+sync_messages(PlayerServPid, _NodisServPid, NAddr, Socket, Options) ->
     F = Options#player_sync_serv_options.f,
     IndexList = player_serv:buffer_select(PlayerServPid, F),
-    case sync_messages_(PlayerServPid, Socket, IndexList, 0, Options) of
+    case sync_messages_(PlayerServPid, NAddr, Socket, IndexList, 0, Options) of
 	{ok,K} ->
-	    io:format("Synced ~w\n", [K]);
+	    ?dbg_log_tag(sync, {ok,K}),
+	    %% nodis:wait(NodisServPid, NAddr),
+	    ok;
 	{error,K,Error} ->
-	    io:format("Synced ~w, error ~w\n", [K, Error])
+	    ?dbg_log_tag(sync, {error,K,Error})
+	    %% nodis:wait(NodisServPid, NAddr)
     end.
 
-sync_messages_(PlayerServPid, Socket, [], K, Options) ->
+sync_messages_(PlayerServPid, NAddr, Socket, [], K, Options) ->
     %% we have no more messages to send so we shutdown our sending side
     %% and read messages until we get a close from the otherside
     %% FIXME: we need total timer here and a max count 
     case gen_tcp:shutdown(Socket, write) of
 	ok ->
-	    sync_recv(PlayerServPid, Socket, K, Options);
+	    sync_recv(PlayerServPid, NAddr, Socket, K, Options);
 	{error,Reason} ->
 	    ?error_log({shutdown, sync_messages, Reason}),
 	    {error, K, Reason}
     end;
-sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
+sync_messages_(PlayerServPid, NAddr, Socket, [Index|IndexList], K, Options) ->
     {ok,SMessage} = player_serv:buffer_read(PlayerServPid, Index),
     case gen_tcp:send(Socket, SMessage) of
 	ok ->
@@ -212,22 +214,27 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 		    case elgamal:udecrypt(RMessage, SecretKey) of
 			mismatch ->
 			    ok = player_serv:buffer_write(PlayerServPid, Index, RMessage),
-			    sync_messages_(PlayerServPid, Socket, IndexList, K+1, Options);
+			    sync_messages_(PlayerServPid, NAddr, Socket, IndexList, K+1, Options);
 			{SenderNym, Signature, DecryptedData} ->
 			    ok = player_serv:got_message(PlayerServPid,
 							 RMessage,
 							 SenderNym, 
 							 Signature,
 							 DecryptedData),
-			    sync_messages_(PlayerServPid, Socket, IndexList,
+			    sync_messages_(PlayerServPid, NAddr, Socket, IndexList,
 					   K+1, Options)
 		    end;
-		{error, closed} ->
+		{error, closed} -> %% otherside closed it's writing side
+		    PlayerServPid ! {sync, self(), NAddr, {done,K}},
 		    gen_tcp:close(Socket),
 		    {error, K, closed};
+		%% FIXME: we may try continue to send our messages, but may
+		%% end up getting RST, not a huge problem? in real situation
+		%% but is noticable in simulation.
 		%% sync_send_(PlayerServPid, Socket, IndexList, K, Options);
 		{error, Reason} ->
 		    ?error_log({recv, sync_messages, Reason}),
+		    PlayerServPid ! {sync,self(),NAddr,{error,Reason}},
 		    gen_tcp:close(Socket),
 		    {error, K, Reason}
 	    end;
@@ -237,17 +244,20 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 	    {error, K, Reason}
     end.
 
-sync_send_(_PlayerServPid, Socket, [], K, _Options) ->
+sync_send_(PlayerServPid, NAddr, Socket, [], K, _Options) ->
     %% reading side is close, close when we are done sending
+    PlayerServPid ! {sync, self(), NAddr, {done,K}},
     gen_tcp:close(Socket),
     {ok,K};
-sync_send_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
+sync_send_(PlayerServPid, NAddr, Socket, [Index|IndexList], K, Options) ->
     {ok,SMessage} = player_serv:buffer_read(PlayerServPid, Index),
     case gen_tcp:send(Socket, SMessage) of
 	ok ->
-	    sync_send_(PlayerServPid, Socket, IndexList, K+1, Options);
+	    sync_send_(PlayerServPid, NAddr, Socket, IndexList, K+1, Options);
 	{error, Reason} ->
 	    ?error_log({send, sync_messages, Reason}),
+	    PlayerServPid ! {sync,self(),NAddr,{error,Reason}},
+	    gen_tcp:close(Socket),
 	    {error, K, Reason}
     end.
 
@@ -255,35 +265,39 @@ sync_send_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 %% since we in general want other side to close properly send a FIN and
 %% get a FIN ACK, otherwise it will be RST and WAIT..
 
-sync_recv(PlayerServPid, Socket, K, Options) ->
-    sync_recv_(PlayerServPid, Socket, K, ?MAX_CLOSE_MESSAGES, Options).
+sync_recv(PlayerServPid, NAddr, Socket, K, Options) ->
+    sync_recv_(PlayerServPid, NAddr, Socket, K, ?MAX_CLOSE_MESSAGES, Options).
 
-sync_recv_(_PlayerServPid, Socket, K, 0, _Options) ->
+sync_recv_(PlayerServPid, NAddr, Socket, K, 0, _Options) ->
     %% force close
+    PlayerServPid ! {sync,self(),NAddr,{error,forced}},
     gen_tcp:close(Socket),
     ?error_log({sync_close, forced_close}),
     {error, K, forced};
-sync_recv_(PlayerServPid, Socket, K, I, Options) ->
+sync_recv_(PlayerServPid, NAddr, Socket, K, I, Options) ->
     case gen_tcp:recv(Socket, ?ENCODED_SIZE, 
 		      Options#player_sync_serv_options.recv_timeout) of
 	{error, closed} -> %% we got a close and everything is good!
+	    PlayerServPid ! {sync, self(), NAddr, {done,K}},
 	    gen_tcp:close(Socket),
 	    {ok,K};
 	{ok, RMessage} ->
 	    %% EXPERIMENTAL: since testing decrypt is a relative cheap operation we can check
-	    %% for messages to US while trying to sync close with a BIGGER node (but not forever)
+	    %% for messages to US while trying to sync close with a 
+	    %% BIGGER node or a PENDING node (but not forever)
 	    {_,SecretKey} = Options#player_sync_serv_options.keys,
 	    case elgamal:udecrypt(RMessage, SecretKey) of
 		mismatch ->
-		    sync_recv_(PlayerServPid, Socket, K, I-1, Options);
+		    sync_recv_(PlayerServPid, NAddr, Socket, K, I-1, Options);
 		{SenderNym, Signature, DecryptedData} ->
 		    ok = player_serv:got_message(PlayerServPid, RMessage,
 						 SenderNym, Signature,
 						 DecryptedData),
-		    sync_recv_(PlayerServPid, Socket, K, I-1, Options)
+		    sync_recv_(PlayerServPid, NAddr, Socket, K, I-1, Options)
 	    end;
 	{error, Reason} ->
 	    ?error_log({recv, sync_messages, Reason}),
+	    PlayerServPid ! {sync,self(),NAddr,{error,Reason}},
 	    gen_tcp:close(Socket),
 	    {error, K, Reason}
     end.

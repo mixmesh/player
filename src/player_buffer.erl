@@ -91,6 +91,7 @@ read(#buffer_handle{simulated=Simulated, buffer=Buffer, size=Size}, Index) when
 	    Message;
 	[{_,_RdC,_MD5,Message}] -> %% if already read we must scramble
 	    if Simulated ->
+		    timer:sleep(100),  %% simulate work
 		    Message;
 	       true ->
 		    %% FIXME dets insert? 
@@ -99,6 +100,7 @@ read(#buffer_handle{simulated=Simulated, buffer=Buffer, size=Size}, Index) when
 	[] ->
 	    Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
 	    if Simulated ->
+		    timer:sleep(100),  %% simulate work
 		    Message;
 	       true ->
 		    elgamal:urandomize(Message)
@@ -113,6 +115,7 @@ write(#buffer_handle{simulated=Simulated,
       is_integer(Index), Index >= 1, Index =< Size,
       is_binary(Message), byte_size(Message) =:= ?ENCODED_SIZE ->
     if Simulated ->
+	    timer:sleep(100),  %% simulate work
 	    MD5 = erlang:md5(Message),
 	    true = ets:insert(Buffer, {Index, 0, MD5, Message}),
 	    ok = dets:insert(FileBuffer, {Index, 0, MD5, Message});

@@ -24,8 +24,6 @@
 -define(PKI_PUSHBACK_TIME, 10000).
 -define(PKI_NETWORK_TIMEOUT, 20000).
 
-%% -define(DSYNC(F,A), io:format((F),(A))).
--define(DSYNC(F,A), ok).
 -define(STORED_MESSAGE_DIGESTS, 10000).
 
 -type message_id() :: pos_integer().
@@ -474,21 +472,19 @@ message_handler(
         %% Nodis subscription events
         %%
         {nodis, NodisSubscription, {pending, NAddr}} ->
-            ?DSYNC("Pending: ~p naddr=~p\n", [SyncAddress, NAddr]),
+            ?dbg_log_tag(nodis, {pending, NAddr}),
             NeighbourState1 = NeighbourState#{ NAddr => pending },
             NeighbourPid1 = NeighbourPid#{ NAddr => undefined },
             update_neighbours(Simulated, Nym, NeighbourState1),
             {noreply, State#state{neighbour_state=NeighbourState1,
                                   neighbour_pid=NeighbourPid1 }};
         {nodis, NodisSubscription, {up, NAddr}} ->
-            ?DSYNC("Up: ~p naddr=~p\n", [SyncAddress, NAddr]),
             ?dbg_log_tag(nodis, {up, NAddr}),
-            NeighbourState1 = NeighbourState#{ NAddr => up },
-            update_neighbours(Simulated, Nym, NeighbourState1),
             case maps:get(NAddr, NeighbourPid, undefined) of
                 undefined when SyncAddress > NAddr ->
                     {ok, Pid} = player_sync_serv:connect(
                                   self(),
+				  NodisServPid,
                                   NAddr,
                                   #player_sync_serv_options{
                                      simulated =  Simulated,
@@ -497,20 +493,25 @@ message_handler(
                                      keys = Keys}),
                     %% double map!
                     NeighbourPid1 = NeighbourPid#{ Pid => NAddr, NAddr => Pid},
+		    %% NeighbourState1 = NeighbourState#{ NAddr => {up,false} },
+		    %% update_neighbours(Simulated, Nym, NeighbourState1),
                     %% update player_db?
-                    {noreply, State#state{neighbour_state=NeighbourState1,
+                    {noreply, State#state{neighbour_state=NeighbourState,
                                           neighbour_pid = NeighbourPid1 }};
                 undefined ->
+		    NeighbourState1 = NeighbourState#{ NAddr => {up,false} },
+		    update_neighbours(Simulated, Nym, NeighbourState1),
                     NeighbourPid1 = NeighbourPid#{ NAddr => undefined },
                     {noreply, State#state{neighbour_state=NeighbourState1,
                                           neighbour_pid=NeighbourPid1 }};
 
                 Pid when is_pid(Pid) ->
                     ?dbg_log_tag(nodis, {up, NAddr}),
-                    {noreply, State#state{neighbour_state=NeighbourState1}}
+		    %% Strange got up when up already in a connection, ignore
+                    {noreply, State#state{neighbour_state=NeighbourState}}
             end;
+
         {nodis, NodisSubscription, {down,NAddr}} ->
-            ?DSYNC("Down: ~p naddr=~p\n", [SyncAddress, NAddr]),
             ?dbg_log_tag(nodis, {down, NAddr}),
             NeighbourState1 = NeighbourState#{ NAddr => down },
             update_neighbours(Simulated, Nym, NeighbourState1),
@@ -522,10 +523,39 @@ message_handler(
                 _ ->
                     {noreply, State#state{neighbour_state=NeighbourState1}}
             end;
+
         {nodis, NodisSubscription, {missed, NAddr}} ->
-            ?DSYNC("Missed: ~p naddr=~p\n", [SyncAddress, NAddr]),
             ?dbg_log_tag(nodis, {missed, NAddr}),
             noreply;
+
+        {nodis, NodisSubscription, {wait,NAddr}} ->
+	    %% neighbour entering wait state (like down)
+            ?dbg_log_tag(nodis, {wait, NAddr}),
+            NeighbourState1 = NeighbourState#{ NAddr => wait },
+            update_neighbours(Simulated, Nym, NeighbourState1),
+	    {noreply, State#state{neighbour_state=NeighbourState1}};
+
+	%% player sync messages
+	{sync, _Pid, NAddr, {up,ConState}} -> %% from sync_serv
+            ?dbg_log_tag(sync, {up,NAddr,ConState}),
+	    %% Maybe we should match Pid with neighbour pid?
+	    NeighbourState1 = NeighbourState#{ NAddr => {up,ConState} },
+	    update_neighbours(Simulated, Nym, NeighbourState1),
+	    {noreply, State#state{neighbour_state=NeighbourState1}};
+
+	{sync, _Pid, NAddr, {error,_Error}} -> %% from sync_serv (connect?)
+	    ?dbg_log_tag(sync, {error, NAddr, _Error}),
+	    nodis:wait(NodisServPid, NAddr),
+	    %% NeighbourState1 = NeighbourState#{ NAddr => up },
+	    {noreply, State}; %% #state{neighbour_state=NeighbourState1}};
+
+	{sync, _Pid, NAddr, {done,K}} -> %% from sync_serv (transmission done)
+	    ?dbg_log_tag(sync, {done,K,NAddr}),
+	    nodis:wait(NodisServPid, NAddr),
+	    %% NeighbourState1 = NeighbourState#{ NAddr => wait },
+	    %% update_neighbours(Simulated, Nym, NeighbourState1),
+	    {noreply, State}; %% #state{ neighbour_state=NeighbourState1}};
+
         {'EXIT', Parent, Reason} ->
             ok = persistent_circular_buffer:close(MessageDigests),
             ok = player_buffer:delete(BufferHandle),
@@ -535,14 +565,9 @@ message_handler(
                 NAddr when is_tuple(NAddr) ->
                     NeighbourPid1 = maps:remove(Pid, NeighbourPid),
                     NeighbourPid2 = maps:remove(NAddr, NeighbourPid1),
-                    ?DSYNC("Wait: ~p\n", [NAddr]),
-                    nodis:wait(NodisServPid, NAddr),
-                    NeighbourState1 = NeighbourState#{ NAddr => wait },
-                    update_neighbours(Simulated, Nym, NeighbourState1),
                     {noreply,
                      State#state{
-                       neighbour_pid = NeighbourPid2,
-                       neighbour_state = NeighbourState1}};
+                       neighbour_pid = NeighbourPid2}};
                 undefined ->
                     ?error_log({unknown_message, UnknownMessage}),
                     {noreply,State}
@@ -647,21 +672,43 @@ update_pick_mode(_Simulated,_Nym,_Mode) ->
 update_neighbours(true, Nym, Ns) ->
     true = player_db:update(
 	     #db_player{ nym = Nym,
-			 neighbours = get_player_nyms(Ns)
+			 neighbours = get_neighbours(Ns)
 		       });
 update_neighbours(false, _Nym, _Ns) ->
     true.
 
--spec get_player_nyms(#{ nodis:node_address() => nodis:node_state() }) ->
-	  [{string(),nodis:node_state()}].
 
-get_player_nyms(Ns) ->
-    List = maps:to_list(Ns),
-    States = [St || {_Addr,St} <- List],
-    Addresses = [Addr || {Addr,_St} <- List],
-    Nyms = simulator_serv:get_player_nyms(Addresses),
-    lists:zip(Nyms,States).
+-spec get_neighbours(#{ nodis:node_address() => 
+			    nodis:node_state() |
+			{up, connect|accept|false} }) ->
+	  [{string(),nodis:node_state(),connect|accept|false}].
 
+%% FIXME: keep nodis-address -> nym in a global state fro speed
+get_neighbours(Ns) when is_map(Ns) ->
+    get_neighbours_(maps:to_list(Ns), [], []).
+
+get_neighbours_([N|Ns], AddrList, States) ->
+    case N of
+	{Addr,{up,ConState}} ->
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,up,ConState}|States]);
+	{Addr,up} -> %% FIXME may be removed?
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,up,false}|States]);
+	{Addr,down} ->
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,down,false}|States]);
+	{Addr,pending} ->
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,pending,false}|States]);
+	{Addr,wait} ->
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,wait,false}|States])
+    end;
+get_neighbours_([], AddrList, States) ->
+    Nyms = simulator_serv:get_player_nyms(AddrList),
+    res_neighbours(Nyms, AddrList, States, []).
+
+res_neighbours([Nym|Nyms],[Addr|AddrList],
+	       [{Addr,State,ConState}|States],Acc) ->
+    res_neighbours(Nyms,AddrList,States,[{Nym,State,ConState}|Acc]);
+res_neighbours([], [], [], Acc) ->
+    Acc.
 
 %%
 %% PKI access functions
