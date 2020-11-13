@@ -68,9 +68,9 @@ handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
     UriPath =
         case Tokens of
             [] ->
-                "/wipe.html";
+                "/install.html";
             ["index.html"] ->
-                "/wipe.html";
+                "/install.html";
             _ ->
                 Url#url.path
         end,
@@ -108,13 +108,7 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
     _Data = rest_util:parse_body(Request, Body),
     case Tokens of
-	Tokens ->
-	    ?dbg_log_fmt("~p not found", [Tokens]),
-	    rest_util:response(Socket, Request, {error, not_found})
-    end;
-handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
-    case Tokens of
-        ["system", "wipe"] ->
+        ["system", "install"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -124,7 +118,7 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_wipe_post(JsonTerm))
+                                       system_install_post(JsonTerm))
             end;
         ["system", "reinstall"] ->
             case rest_util:parse_body(
@@ -160,12 +154,19 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                                        {error, bad_request, "Invalid payload"})
             end;
 	_ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
+	    rest_util:response(Socket, Request, {error, not_found})
+    end;
+handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
+    case Tokens of
+	_ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    rest_util:response(Socket, Request, {error, not_found})
     end.
 
-%% /dj/system/wipe (POST)
+%% /v1/system/install (POST)
 
-system_wipe_post(JsonTerm) ->
+system_install_post(JsonTerm) ->
     try
         [Nym, SmtpPassword, Pop3Password, HttpPassword,
          SyncAddress, SmtpAddress, Pop3Address, HttpAddress, ObscreteDir, Pin] =
@@ -257,7 +258,7 @@ update_config(Config, []) ->
 update_config(Config, [{Pattern, Replacement}|Rest]) ->
     update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
 
-%% /dj/system/reinstall (POST)
+%% /v1/system/reinstall (POST)
 
 system_reinstall_post(JsonTerm) ->
     try
@@ -357,7 +358,7 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
-%% /dj/system/restart (POST)
+%% /v1/system/restart (POST)
 
 system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
     timer:apply_after(Time * 1000, erlang, halt, [0]),
@@ -365,7 +366,7 @@ system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
 system_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-%% /dj/key/import (POST)
+%% /v1/key/import (POST)
 
 %% {multipart_form_data,[{data,[{<<"Content-Disposition">>,
 %%                                     <<"form-data; name=\"c\"">>}],
@@ -422,7 +423,7 @@ key_import_post(FormData) ->
 get_form_data(FormData, Names) ->
     sort_form_data(get_form_data_values(FormData, Names), Names).
 
-sort_form_data(NameValues, []) ->
+sort_form_data(_NameValues, []) ->
     [];
 sort_form_data(NameValues, [Name|Rest]) ->
     {value, {_, Value}, RemainingNameValues} =
