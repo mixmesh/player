@@ -53,7 +53,7 @@ handle_http_request_(Socket, Request, Body, Options) ->
 
 handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
-    case string:tokens(Url#url.path,"/") of
+    case string:tokens(Url#url.path, "/") of
 	["v1" | Tokens] ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1);
 	["dj" | Tokens] ->
@@ -97,7 +97,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
 
 handle_http_post(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
-    case string:tokens(Url#url.path,"/") of
+    case string:tokens(Url#url.path, "/") of
 	["dj" | Tokens] ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj);
 	Tokens ->
@@ -106,7 +106,6 @@ handle_http_post(Socket, Request, Body, Options) ->
 
 handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
-    _Data = rest_util:parse_body(Request, Body),
     case Tokens of
         ["system", "install"] ->
             case rest_util:parse_body(
@@ -164,7 +163,7 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 	    rest_util:response(Socket, Request, {error, not_found})
     end.
 
-%% /v1/system/install (POST)
+%% /system/install (POST)
 
 system_install_post(JsonTerm) ->
     try
@@ -258,7 +257,7 @@ update_config(Config, []) ->
 update_config(Config, [{Pattern, Replacement}|Rest]) ->
     update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
 
-%% /v1/system/reinstall (POST)
+%% /system/reinstall (POST)
 
 system_reinstall_post(JsonTerm) ->
     try
@@ -358,7 +357,7 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
-%% /v1/system/restart (POST)
+%% /system/restart (POST)
 
 system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
     timer:apply_after(Time * 1000, erlang, halt, [0]),
@@ -366,7 +365,7 @@ system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
 system_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-%% /v1/key/import (POST)
+%% /key/import (POST)
 
 %% {multipart_form_data,[{data,[{<<"Content-Disposition">>,
 %%                                     <<"form-data; name=\"c\"">>}],

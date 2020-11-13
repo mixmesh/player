@@ -83,7 +83,7 @@ handle_http_get(Socket, Request, Body, Options) ->
     case string:tokens(Url#url.path, "/") of
 	["versions"] ->
 	    Object = jsone:encode([v1, dj, dt]),
-	    rester_http_server:response_r(Socket,Request,200, "OK",
+	    rester_http_server:response_r(Socket,Request, 200, "OK",
 					  Object,
 					  [{content_type,"application/json"}]);
 	["v1" | Tokens] ->
@@ -166,9 +166,9 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
             UriPath =
                 case Tokens of
                     [] ->
-                        "/your_key.html";
+                        "/me.html";
                     ["index.html"] ->
-                        "/your_key.html";
+                        "/me.html";
                     _ ->
                         Url#url.path
                 end,
@@ -255,7 +255,7 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-%% /v1/key (PUT)
+%% /key (PUT)
 
 key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
     PublicKey =
@@ -300,7 +300,6 @@ handle_http_post(Socket, Request, Body, Options) ->
 
 handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
-    _Data = rest_util:parse_body(Request, Body),
     case Tokens of
         ["get-config"] ->
             case rest_util:parse_body(
@@ -393,7 +392,7 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-%% /v1/get-config (POST)
+%% /get-config (POST)
 
 get_config_post(Filter) when is_list(Filter) ->
     try
@@ -476,7 +475,7 @@ shared_decrypt_secret_key(DecodedSecretKey) ->
     SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
     player_crypto:shared_decrypt(SharedKey, DecodedSecretKey).
 
-%% /v1/edit-config (POST)
+%% /edit-config (POST)
 
 edit_config_post(JsonTerm) ->
     try
@@ -519,7 +518,7 @@ edit_config_merge([{Name, _OldValue}|OldJsonTerm],
 edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
     [{Name, OldValue}|edit_config_merge(OldJsonTerm, NewJsonTerm)].
 
-%% /v1/key/filter (POST)
+%% /key/filter (POST)
 
 key_filter_post(PkiServPid, JsonTerm) ->
     key_filter(PkiServPid, JsonTerm, {[], 100}).
@@ -545,7 +544,7 @@ key_filter(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
 key_filter(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
     {error, bad_request, "Invalid filter"}.
 
-%% /v1/key/delete (POST)
+%% /key/delete (POST)
 
 key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
     key_delete(PkiServPid, Nyms, []);
@@ -571,7 +570,7 @@ key_delete(PkiServPid, [Nym|Rest], Failures)
 key_delete(PkiServPid, [_|Rest], Failures) ->
     key_delete(PkiServPid, Rest, Failures).
 
-%% /v1/key/export (POST)
+%% /key/export (POST)
 
 key_export_post(Options, PkiServPid, <<"all">>) ->
 {ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
@@ -611,7 +610,7 @@ key_export(PkiServPid, [Nym|Rest], UriPath, File, N, MD5Context)
 key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
     {error, bad_request, "Invalid nyms"}.
 
-%% /v1/key/import (POST)
+%% /key/import (POST)
 
 key_import_post(PkiServPid, FormData) ->
     case lists:keysearch(file, 1, FormData) of
