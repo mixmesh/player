@@ -12,9 +12,12 @@
 %% Exported: start_link
 
 start_link(Port) ->
+    CertFilename = filename:join([code:priv_dir(player), "cert.pem"]),
     ResterHttpArgs =
 	[{request_handler, {?MODULE, handle_http_request, []}},
 	 {ifaddr, {0, 0, 0, 0}},
+	 {certfile, CertFilename},
+	 {verify, verify_none},
 	 {nodelay, true},
 	 {reuseaddr, true}],
     ?daemon_log_tag_fmt(system, "Bootstrap REST server on 0.0.0.0:~w",
@@ -392,7 +395,7 @@ key_import_post(FormData) ->
         case PinSalt of
             bad_format ->
                 {error, bad_request, "Invalid pin-salt"};
-            _ ->            
+            _ ->
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
                         {ok, File, SharedKey} =

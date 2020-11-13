@@ -155,7 +155,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
             InitializationTime = config:lookup([system, 'initialization-time']),
             rest_util:response(
               Socket, Request,
-              {ok, {format, SecondsSinceEpoch - InitializationTime}});            
+              {ok, {format, SecondsSinceEpoch - InitializationTime}});
         ["player"] ->
             Nym = config:lookup([player, nym]),
             [PublicKey, SecretKey] =
@@ -182,7 +182,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                 lists:map(
                   fun(PublicKey) ->
                           [{<<"nym">>, PublicKey#pk.nym},
-                           {<<"public-key">>, 
+                           {<<"public-key">>,
                             base64:encode(
                               elgamal:public_key_to_binary(PublicKey))}]
                   end, PublicKeys),
