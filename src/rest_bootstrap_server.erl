@@ -365,7 +365,7 @@ bootstrap_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
 bootstrap_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-%% /key/import (POST)
+%% /bootstrap/key/import (POST)
 
 bootstrap_key_import_post(FormData) ->
     try
