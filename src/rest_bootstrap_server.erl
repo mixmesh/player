@@ -398,25 +398,32 @@ key_import_post(FormData) ->
             _ ->
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
-                        {ok, File, SharedKey} =
-                            local_pki_serv:new_db(
-                              Nym, ObscreteDir, Pin, PinSalt),
-                        Result =
-                            rest_normal_server:key_import_post(
-                              undefined, Filename,
-                              fun(PublicKey) ->
-                                      local_pki_serv:write_to_db(
-                                        File, SharedKey, PublicKey)
-                              end),
-                        ok = file:close(File),
-                        Result;
+                        case local_pki_serv:new_db(
+                               Nym, ObscreteDir, Pin, PinSalt) of
+                            {ok, File, SharedKey} ->
+                                Result =
+                                    rest_normal_server:key_import_post(
+                                      undefined, Filename,
+                                      fun(PublicKey) ->
+                                              local_pki_serv:write_to_db(
+                                                File, SharedKey, PublicKey)
+                                      end),
+                                ok = file:close(File),
+                                Result;
+                            {error, {file, Reason, DbFilename}} ->
+                                ReasonString =
+                                    io_lib:format(
+                                      "~s: ~s",
+                                      [DbFilename, file:format_error(Reason)]),
+                                {error, bad_request, ReasonString}
+                        end;
                     false ->
                         {error, bad_request, "Missing key-file"}
                 end
         end
     catch
-        throw:{error, Reason} ->
-            {error, bad_request, Reason}
+        throw:{error, ThrowReason} ->
+            {error, bad_request, ThrowReason}
     end.
 
 get_form_data(FormData, Names) ->
@@ -432,7 +439,7 @@ sort_form_data(NameValues, [Name|Rest]) ->
 get_form_data_values(_FormData, []) ->
     [];
 get_form_data_values([], [Name|_]) ->
-    throw({error, io_lib:format("Missing ~s", [Name])});
+    throw({error, lists:flatten(io_lib:format("Missing ~s", [Name]))});
 get_form_data_values([{data, Headers, Value}|Rest], Names) ->
     case lists:keysearch(<<"Content-Disposition">>, 1, Headers) of
         {value, {_, <<"form-data; name=", FormName/binary>>}} ->
