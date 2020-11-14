@@ -143,8 +143,11 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
             NymBin = ?l2b(Nym),
             case local_pki_serv:read(PkiServPid, NymBin) of
                 {ok, PublicKey} ->
-                    JsonTerm = base64:encode(
-                                 elgamal:public_key_to_binary(PublicKey)),
+                    JsonTerm =
+                        [{<<"nym">>, PublicKey#pk.nym},
+                         {<<"public-key">>,
+                          base64:encode(
+                            elgamal:public_key_to_binary(PublicKey))}],
                     rest_util:response(Socket, Request,
                                        {ok, {format, JsonTerm}});
                 {error, no_such_key} ->
@@ -192,7 +195,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
     _Accept = rester_http:accept_media(Request),
     case Tokens of
 	_ ->
-	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
+	    handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1)
     end;
 %% developer J GET code
 handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
@@ -200,7 +203,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
     _Accept = rester_http:accept_media(Request),
     case Tokens of
         _ ->
-	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
+	    handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1)
     end.
 
 get_worker_pids(Ids, Options) ->
