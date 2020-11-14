@@ -107,7 +107,7 @@ handle_http_post(Socket, Request, Body, Options) ->
 handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
     case Tokens of
-        ["system", "install"] ->
+        ["bootstrap", "install"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -117,9 +117,9 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_install_post(JsonTerm))
+                                       bootstrap_install_post(JsonTerm))
             end;
-        ["system", "reinstall"] ->
+        ["bootstrap", "reinstall"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -129,9 +129,9 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_reinstall_post(JsonTerm))
+                                       bootstrap_reinstall_post(JsonTerm))
             end;
-        ["system", "restart"] ->
+        ["bootstrap", "restart"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -141,13 +141,13 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_restart_post(JsonTerm))
+                                       bootstrap_restart_post(JsonTerm))
             end;
-        ["key", "import"] ->
+        ["bootstrap", "key", "import"] ->
             case Body of
                 {multipart_form_data, FormData} ->
                     rest_util:response(Socket, Request,
-                                       key_import_post(FormData));
+                                       bootstrap_key_import_post(FormData));
                 _ ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
@@ -163,9 +163,9 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 	    rest_util:response(Socket, Request, {error, not_found})
     end.
 
-%% /system/install (POST)
+%% /bootstrap/install (POST)
 
-system_install_post(JsonTerm) ->
+bootstrap_install_post(JsonTerm) ->
     try
         [Nym, SmtpPassword, Pop3Password, HttpPassword,
          SyncAddress, SmtpAddress, Pop3Address, HttpAddress, ObscreteDir, Pin] =
@@ -257,9 +257,9 @@ update_config(Config, []) ->
 update_config(Config, [{Pattern, Replacement}|Rest]) ->
     update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
 
-%% /system/reinstall (POST)
+%% /bootstrap/reinstall (POST)
 
-system_reinstall_post(JsonTerm) ->
+bootstrap_reinstall_post(JsonTerm) ->
     try
         [EncodedPublicKey, EncodedSecretKey, SmtpPassword, Pop3Password,
          HttpPassword, SyncAddress, SmtpAddress, Pop3Address, HttpAddress,
@@ -357,29 +357,17 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
-%% /system/restart (POST)
+%% /bootstrap/restart (POST)
 
-system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
+bootstrap_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
     timer:apply_after(Time * 1000, erlang, halt, [0]),
     {ok, "Yes, sir!"};
-system_restart_post(_Time) ->
+bootstrap_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
 %% /key/import (POST)
 
-%% {multipart_form_data,[{data,[{<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"c\"">>}],
-%%                                   <<"d\r\n">>},
-%%                             {data,[{<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"a\"">>}],
-%%                                   <<"b\r\n">>},
-%%                             {file,[{<<"Content-Type">>,
-%%                                     <<"application/octet-stream">>},
-%%                                    {<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"key-file\"; filename=\"keys-6.bin\"">>}],
-%%                                   "/tmp/form-data-8"}]}
-
-key_import_post(FormData) ->
+bootstrap_key_import_post(FormData) ->
     try
         [Nym, ObscreteDir, Pin, EncodedPinSalt] =
             get_form_data(
