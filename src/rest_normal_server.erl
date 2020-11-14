@@ -277,9 +277,7 @@ key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
                     {ok, {format, PublicKey#pk.nym}};
                 {error, no_such_key} ->
                     ok = local_pki_serv:create(PkiServPid, PublicKey),
-                    {ok, {format, PublicKey#pk.nym}};
-                {error, permission_denied} ->
-                    {error, no_access}
+                    {ok, {format, PublicKey#pk.nym}}
             end
     end;
 key_put(_PkiServPid, _JsonTerm) ->
@@ -625,9 +623,7 @@ key_import_post(PkiServPid, FormData) ->
                           ok ->
                               ok;
                           {error, no_such_key} ->
-                              ok = local_pki_serv:create(PkiServPid, PublicKey);
-                          {error, Reason} ->
-                              {error, Reason}
+                              ok = local_pki_serv:create(PkiServPid, PublicKey)
                       end
               end);
         false ->
