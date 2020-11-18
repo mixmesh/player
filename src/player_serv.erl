@@ -9,6 +9,8 @@
 -export([send_message/3]).
 -export([start_location_updating/1]).
 -export([get_unique_id/0]).
+-export([message_handler/1]).
+
 -export_type([message_id/0, pick_mode/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -101,7 +103,7 @@ initial_message_handler(#state{nym = Nym,
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
             ok = publish_public_key(PkiServPid, PkiMode, Nym, PublicKey),
-            {swap_message_handler, fun message_handler/1,
+            {swap_message_handler, fun ?MODULE:message_handler/1,
              State#state{maildrop_serv_pid = MaildropServPid,
                          pki_serv_pid = PkiServPid,
 			 nodis_serv_pid = NodisServPid,
@@ -163,7 +165,7 @@ become_target(Pid, MessageMD5) ->
 buffer_read(Pid, Index) ->
     serv:call(Pid, {buffer_read, Index}).
 
--spec buffer_write(Pid::pid(), Index::non_neg_integer(), 
+-spec buffer_write(Pid::pid(), Index::non_neg_integer(),
 		   Message::binary()) ->
 	  ok.
 
@@ -450,7 +452,7 @@ message_handler(
 		    Count = player_buffer:count(BufferHandle, MessageMD5),
 		    if Simulated -> %% keep track on this message for simulation
 			    ets:insert(player_message, {MessageMD5, true}),
-                            ok = simulator_serv:elect_target(MessageMD5, 
+                            ok = simulator_serv:elect_target(MessageMD5,
 							     Nym,
 							     RecipientNym),
                             true = player_db:update(
@@ -567,7 +569,7 @@ message_handler(
                 {{NextTimestamp, NextX, NextY}, NewLocationGenerator} ->
                     if
                         X == none ->
-                            ?dbg_log_tag(location, 
+                            ?dbg_log_tag(location,
 					 {initial_location, NextX, NextY}),
                             case Simulated of
                                 true ->
@@ -577,7 +579,7 @@ message_handler(
                             end;
                         true ->
                             ?dbg_log_tag(location,
-					 {location_updated, Nym, 
+					 {location_updated, Nym,
 					  X,Y,
 					  NextX, NextY}),
                             case Simulated of
@@ -629,12 +631,12 @@ traced_message() ->
 	'$end_of_table' ->  false;
 	MessageMD5 -> MessageMD5
     end.
-	
+
 %% count number of "traced" messages we have in the buffer
 count_traced_messages(BufferHandle) ->
     case traced_message() of
 	false -> 0;
-	MessageMD5 -> 
+	MessageMD5 ->
 	    player_buffer:count(BufferHandle,MessageMD5)
     end.
 

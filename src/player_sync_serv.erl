@@ -1,6 +1,7 @@
 -module(player_sync_serv).
 -export([connect/3]).
 -export([start_link/5, stop/1]).
+-export([message_handler/1]).
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/serv.hrl").
@@ -114,7 +115,7 @@ initial_message_handler(State) ->
 		[PlayerServPid, NodisServPid] ->
 		    ok
 	    end,
-            {swap_message_handler, fun message_handler/1,
+            {swap_message_handler, fun ?MODULE:message_handler/1,
              State#state{player_serv_pid = PlayerServPid,
 			 nodis_serv_pid = NodisServPid}}
     end.
@@ -193,7 +194,7 @@ sync_messages(PlayerServPid, Socket, Options) ->
 sync_messages_(PlayerServPid, Socket, [], K, Options) ->
     %% we have no more messages to send so we shutdown our sending side
     %% and read messages until we get a close from the otherside
-    %% FIXME: we need total timer here and a max count 
+    %% FIXME: we need total timer here and a max count
     case gen_tcp:shutdown(Socket, write) of
 	ok ->
 	    sync_recv(PlayerServPid, Socket, K, Options);
@@ -216,7 +217,7 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 			{SenderNym, Signature, DecryptedData} ->
 			    ok = player_serv:got_message(PlayerServPid,
 							 RMessage,
-							 SenderNym, 
+							 SenderNym,
 							 Signature,
 							 DecryptedData),
 			    sync_messages_(PlayerServPid, Socket, IndexList,
@@ -231,7 +232,7 @@ sync_messages_(PlayerServPid, Socket, [Index|IndexList], K, Options) ->
 		    gen_tcp:close(Socket),
 		    {error, K, Reason}
 	    end;
-	{error, Reason} -> 
+	{error, Reason} ->
 	    ?error_log({send, sync_messages, Reason}),
 	    gen_tcp:close(Socket),
 	    {error, K, Reason}
@@ -264,7 +265,7 @@ sync_recv_(_PlayerServPid, Socket, K, 0, _Options) ->
     ?error_log({sync_close, forced_close}),
     {error, K, forced};
 sync_recv_(PlayerServPid, Socket, K, I, Options) ->
-    case gen_tcp:recv(Socket, ?ENCODED_SIZE, 
+    case gen_tcp:recv(Socket, ?ENCODED_SIZE,
 		      Options#player_sync_serv_options.recv_timeout) of
 	{error, closed} -> %% we got a close and everything is good!
 	    gen_tcp:close(Socket),
