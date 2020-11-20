@@ -12,9 +12,12 @@
 %% Exported: start_link
 
 start_link(Port) ->
+    CertFilename = filename:join([code:priv_dir(player), "cert.pem"]),
     ResterHttpArgs =
 	[{request_handler, {?MODULE, handle_http_request, []}},
 	 {ifaddr, {0, 0, 0, 0}},
+	 {certfile, CertFilename},
+	 {verify, verify_none},
 	 {nodelay, true},
 	 {reuseaddr, true}],
     ?daemon_log_tag_fmt(system, "Bootstrap REST server on 0.0.0.0:~w",
@@ -50,7 +53,7 @@ handle_http_request_(Socket, Request, Body, Options) ->
 
 handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
-    case string:tokens(Url#url.path,"/") of
+    case string:tokens(Url#url.path, "/") of
 	["v1" | Tokens] ->
 	    handle_http_get(Socket, Request, Options, Url, Tokens, Body, v1);
 	["dj" | Tokens] ->
@@ -65,9 +68,9 @@ handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
     UriPath =
         case Tokens of
             [] ->
-                "/wipe.html";
+                "/install.html";
             ["index.html"] ->
-                "/wipe.html";
+                "/install.html";
             _ ->
                 Url#url.path
         end,
@@ -94,7 +97,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
 
 handle_http_post(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
-    case string:tokens(Url#url.path,"/") of
+    case string:tokens(Url#url.path, "/") of
 	["dj" | Tokens] ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj);
 	Tokens ->
@@ -103,15 +106,8 @@ handle_http_post(Socket, Request, Body, Options) ->
 
 handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
-    _Data = rest_util:parse_body(Request, Body),
     case Tokens of
-	Tokens ->
-	    ?dbg_log_fmt("~p not found", [Tokens]),
-	    rest_util:response(Socket, Request, {error, not_found})
-    end;
-handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
-    case Tokens of
-        ["system", "wipe"] ->
+        ["bootstrap", "install"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -121,9 +117,9 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_wipe_post(JsonTerm))
+                                       bootstrap_install_post(JsonTerm))
             end;
-        ["system", "reinstall"] ->
+        ["bootstrap", "reinstall"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -133,9 +129,9 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_reinstall_post(JsonTerm))
+                                       bootstrap_reinstall_post(JsonTerm))
             end;
-        ["system", "restart"] ->
+        ["bootstrap", "restart"] ->
             case rest_util:parse_body(
                    Request, Body,
                    [{jsone_options, [{object_format, proplist}]}]) of
@@ -145,24 +141,31 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, dj) ->
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
-                                       system_restart_post(JsonTerm))
+                                       bootstrap_restart_post(JsonTerm))
             end;
-        ["key", "import"] ->
+        ["bootstrap", "key", "import"] ->
             case Body of
                 {multipart_form_data, FormData} ->
                     rest_util:response(Socket, Request,
-                                       key_import_post(FormData));
+                                       bootstrap_key_import_post(FormData));
                 _ ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
             end;
 	_ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
+	    rest_util:response(Socket, Request, {error, not_found})
+    end;
+handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
+    case Tokens of
+	_ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    rest_util:response(Socket, Request, {error, not_found})
     end.
 
-%% /dj/system/wipe (POST)
+%% /bootstrap/install (POST)
 
-system_wipe_post(JsonTerm) ->
+bootstrap_install_post(JsonTerm) ->
     try
         [Nym, SmtpPassword, Pop3Password, HttpPassword,
          SyncAddress, SmtpAddress, Pop3Address, HttpAddress, ObscreteDir, Pin] =
@@ -254,9 +257,9 @@ update_config(Config, []) ->
 update_config(Config, [{Pattern, Replacement}|Rest]) ->
     update_config(binary:replace(Config, Pattern, Replacement, [global]), Rest).
 
-%% /dj/system/reinstall (POST)
+%% /bootstrap/reinstall (POST)
 
-system_reinstall_post(JsonTerm) ->
+bootstrap_reinstall_post(JsonTerm) ->
     try
         [EncodedPublicKey, EncodedSecretKey, SmtpPassword, Pop3Password,
          HttpPassword, SyncAddress, SmtpAddress, Pop3Address, HttpAddress,
@@ -354,29 +357,17 @@ system_reinstall_post(JsonTerm) ->
             {error, bad_request, ThrowReason}
     end.
 
-%% /dj/system/restart (POST)
+%% /bootstrap/restart (POST)
 
-system_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
+bootstrap_restart_post(Time) when is_integer(Time) andalso Time > 0 ->
     timer:apply_after(Time * 1000, erlang, halt, [0]),
     {ok, "Yes, sir!"};
-system_restart_post(_Time) ->
+bootstrap_restart_post(_Time) ->
     {error, bad_request, "Invalid time"}.
 
-%% /dj/key/import (POST)
+%% /bootstrap/key/import (POST)
 
-%% {multipart_form_data,[{data,[{<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"c\"">>}],
-%%                                   <<"d\r\n">>},
-%%                             {data,[{<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"a\"">>}],
-%%                                   <<"b\r\n">>},
-%%                             {file,[{<<"Content-Type">>,
-%%                                     <<"application/octet-stream">>},
-%%                                    {<<"Content-Disposition">>,
-%%                                     <<"form-data; name=\"key-file\"; filename=\"keys-6.bin\"">>}],
-%%                                   "/tmp/form-data-8"}]}
-
-key_import_post(FormData) ->
+bootstrap_key_import_post(FormData) ->
     try
         [Nym, ObscreteDir, Pin, EncodedPinSalt] =
             get_form_data(
@@ -392,34 +383,41 @@ key_import_post(FormData) ->
         case PinSalt of
             bad_format ->
                 {error, bad_request, "Invalid pin-salt"};
-            _ ->            
+            _ ->
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
-                        {ok, File, SharedKey} =
-                            local_pki_serv:new_db(
-                              Nym, ObscreteDir, Pin, PinSalt),
-                        Result =
-                            rest_normal_server:key_import_post(
-                              undefined, Filename,
-                              fun(PublicKey) ->
-                                      local_pki_serv:write_to_db(
-                                        File, SharedKey, PublicKey)
-                              end),
-                        ok = file:close(File),
-                        Result;
+                        case local_pki_serv:new_db(
+                               Nym, ObscreteDir, Pin, PinSalt) of
+                            {ok, File, SharedKey} ->
+                                Result =
+                                    rest_normal_server:key_import_post(
+                                      undefined, Filename,
+                                      fun(PublicKey) ->
+                                              local_pki_serv:write_to_db(
+                                                File, SharedKey, PublicKey)
+                                      end),
+                                ok = file:close(File),
+                                Result;
+                            {error, {file, Reason, DbFilename}} ->
+                                ReasonString =
+                                    io_lib:format(
+                                      "~s: ~s",
+                                      [DbFilename, file:format_error(Reason)]),
+                                {error, bad_request, ReasonString}
+                        end;
                     false ->
                         {error, bad_request, "Missing key-file"}
                 end
         end
     catch
-        throw:{error, Reason} ->
-            {error, bad_request, Reason}
+        throw:{error, ThrowReason} ->
+            {error, bad_request, ThrowReason}
     end.
 
 get_form_data(FormData, Names) ->
     sort_form_data(get_form_data_values(FormData, Names), Names).
 
-sort_form_data(NameValues, []) ->
+sort_form_data(_NameValues, []) ->
     [];
 sort_form_data(NameValues, [Name|Rest]) ->
     {value, {_, Value}, RemainingNameValues} =
@@ -429,7 +427,7 @@ sort_form_data(NameValues, [Name|Rest]) ->
 get_form_data_values(_FormData, []) ->
     [];
 get_form_data_values([], [Name|_]) ->
-    throw({error, io_lib:format("Missing ~s", [Name])});
+    throw({error, lists:flatten(io_lib:format("Missing ~s", [Name]))});
 get_form_data_values([{data, Headers, Value}|Rest], Names) ->
     case lists:keysearch(<<"Content-Disposition">>, 1, Headers) of
         {value, {_, <<"form-data; name=", FormName/binary>>}} ->

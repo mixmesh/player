@@ -80,10 +80,10 @@ handle_http_request_(Socket, Request, Body, Options) ->
 
 handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
-    case string:tokens(Url#url.path,"/") of
+    case string:tokens(Url#url.path, "/") of
 	["versions"] ->
-	    Object = jsone:encode([v1,dj,dt]),
-	    rester_http_server:response_r(Socket,Request,200, "OK",
+	    Object = jsone:encode([v1, dj, dt]),
+	    rester_http_server:response_r(Socket,Request, 200, "OK",
 					  Object,
 					  [{content_type,"application/json"}]);
 	["v1" | Tokens] ->
@@ -100,62 +100,13 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
     _Access = rest_util:access(Socket),
     _Accept = rester_http:accept_media(Request),
     case Tokens of
-	["temp", TempFilename] ->
-            {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
-            AbsFilename = filename:join([TempDir, TempFilename]),
-            case filelib:is_regular(AbsFilename) of
-                true ->
-                    rester_http_server:response_r(
-                      Socket, Request, 200, "OK", {file, AbsFilename},
-                      [{content_type, {url, Url#url.path}}]);
-                false ->
-                    ?dbg_log_fmt("~p not found", [Tokens]),
-                    rest_util:response(Socket, Request, {error, not_found})
-            end;
-	Tokens ->
-            UriPath =
-                case Tokens of
-                    [] ->
-                        "/your_key.html";
-                    ["index.html"] ->
-                        "/your_key.html";
-                    _ ->
-                        Url#url.path
-                end,
-            AbsFilename =
-                filename:join(
-                  [filename:absname(code:priv_dir(obscrete)), "docroot",
-                   tl(UriPath)]),
-            case filelib:is_regular(AbsFilename) of
-                true ->
-                    rester_http_server:response_r(
-                      Socket, Request, 200, "OK", {file, AbsFilename},
-                      [{content_type, {url, UriPath}}]);
-                false ->
-                    ?dbg_log_fmt("~p not found", [Tokens]),
-                    rest_util:response(Socket, Request, {error, not_found})
-            end
-    end;
-%% developer T GET code
-handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
-    _Access = rest_util:access(Socket),
-    _Accept = rester_http:accept_media(Request),
-    case Tokens of
-	_ ->
-	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
-    end;
-%% developer J GET code
-handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
-    _Access = rest_util:access(Socket),
-    _Accept = rester_http:accept_media(Request),
-    case Tokens of
         ["seconds-since-initialization"] ->
             {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
             SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
             InitializationTime = config:lookup([system, 'initialization-time']),
             rest_util:response(
               Socket, Request,
-              {ok, {format, SecondsSinceEpoch - InitializationTime}});            
+              {ok, {format, SecondsSinceEpoch - InitializationTime}});
         ["player"] ->
             Nym = config:lookup([player, nym]),
             [PublicKey, SecretKey] =
@@ -182,7 +133,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
                 lists:map(
                   fun(PublicKey) ->
                           [{<<"nym">>, PublicKey#pk.nym},
-                           {<<"public-key">>, 
+                           {<<"public-key">>,
                             base64:encode(
                               elgamal:public_key_to_binary(PublicKey))}]
                   end, PublicKeys),
@@ -192,15 +143,67 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
             NymBin = ?l2b(Nym),
             case local_pki_serv:read(PkiServPid, NymBin) of
                 {ok, PublicKey} ->
-                    JsonTerm = base64:encode(
-                                 elgamal:public_key_to_binary(PublicKey)),
+                    JsonTerm =
+                        [{<<"nym">>, PublicKey#pk.nym},
+                         {<<"public-key">>,
+                          base64:encode(
+                            elgamal:public_key_to_binary(PublicKey))}],
                     rest_util:response(Socket, Request,
                                        {ok, {format, JsonTerm}});
                 {error, no_such_key} ->
                     rest_util:response(Socket, Request, {error, not_found})
             end;
+	["temp", TempFilename] ->
+            {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
+            AbsFilename = filename:join([TempDir, TempFilename]),
+            case filelib:is_regular(AbsFilename) of
+                true ->
+                    rester_http_server:response_r(
+                      Socket, Request, 200, "OK", {file, AbsFilename},
+                      [{content_type, {url, Url#url.path}}]);
+                false ->
+                    ?dbg_log_fmt("~p not found", [Tokens]),
+                    rest_util:response(Socket, Request, {error, not_found})
+            end;
+	Tokens ->
+            UriPath =
+                case Tokens of
+                    [] ->
+                        "/me.html";
+                    ["index.html"] ->
+                        "/me.html";
+                    _ ->
+                        Url#url.path
+                end,
+            AbsFilename =
+                filename:join(
+                  [filename:absname(code:priv_dir(obscrete)), "docroot",
+                   tl(UriPath)]),
+            case filelib:is_regular(AbsFilename) of
+                true ->
+                    rester_http_server:response_r(
+                      Socket, Request, 200, "OK", {file, AbsFilename},
+                      [{content_type, {url, UriPath}}]);
+                false ->
+                    ?dbg_log_fmt("~p not found", [Tokens]),
+                    rest_util:response(Socket, Request, {error, not_found})
+            end
+    end;
+%% developer T GET code
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dt) ->
+    _Access = rest_util:access(Socket),
+    _Accept = rester_http:accept_media(Request),
+    case Tokens of
+	_ ->
+	    handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1)
+    end;
+%% developer J GET code
+handle_http_get(Socket, Request, Options, Url, Tokens, _Body, dj) ->
+    _Access = rest_util:access(Socket),
+    _Accept = rester_http:accept_media(Request),
+    case Tokens of
         _ ->
-	    handle_http_get(Socket, Request, Url, Options, Tokens, _Body, v1)
+	    handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1)
     end.
 
 get_worker_pids(Ids, Options) ->
@@ -224,9 +227,21 @@ handle_http_put(Socket, Request, Body, Options) ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_put(Socket, Request, _Options, _Url, Tokens, _Body, v1) ->
+handle_http_put(Socket, Request, Options, _Url, Tokens, Body, v1) ->
     case Tokens of
-	Tokens ->
+        ["key"] ->
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
+                {error, _} ->
+                    rest_util:response(Socket, Request,
+                                       {error, bad_request, "Invalid JSON"});
+                JsonTerm ->
+                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    rest_util:response(Socket, Request,
+                                       key_put(PkiServPid, JsonTerm))
+            end;
+	_ ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
 	    rest_util:response(Socket, Request, {error, not_found})
     end;
@@ -239,22 +254,11 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dt) ->
 %% developer J PUT code
 handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
-        ["key"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
-                {error, _} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON"});
-                JsonTerm ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
-                    rest_util:response(Socket, Request,
-                                       key_put(PkiServPid, JsonTerm))
-            end;
 	_Other ->
 	    handle_http_put(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-%% dj/key (PUT)
+%% /key (PUT)
 
 key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
     PublicKey =
@@ -273,9 +277,7 @@ key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
                     {ok, {format, PublicKey#pk.nym}};
                 {error, no_such_key} ->
                     ok = local_pki_serv:create(PkiServPid, PublicKey),
-                    {ok, {format, PublicKey#pk.nym}};
-                {error, permission_denied} ->
-                    {error, no_access}
+                    {ok, {format, PublicKey#pk.nym}}
             end
     end;
 key_put(_PkiServPid, _JsonTerm) ->
@@ -297,74 +299,74 @@ handle_http_post(Socket, Request, Body, Options) ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
+handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
-    _Data = rest_util:parse_body(Request, Body),
-    case Tokens of
-	Tokens ->
-	    ?dbg_log_fmt("~p not found", [Tokens]),
-	    rest_util:response(Socket, Request, {error, not_found})
-    end;
-handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
-    case Tokens of
-	_Other ->
-	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
-    end;
-handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
     case Tokens of
         ["get-config"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
                                        get_config_post(JsonTerm))
             end;
         ["edit-config"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     rest_util:response(Socket, Request,
                                        edit_config_post(JsonTerm))
             end;
 
         ["key", "filter"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
-                    rest_util:response(Socket, Request,
-                             key_filter_post(PkiServPid, JsonTerm))
+                    rest_util:response(
+                      Socket, Request,
+                      key_filter_post(PkiServPid, JsonTerm))
             end;
         ["key", "delete"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
                     rest_util:response(Socket, Request,
-                             key_delete_post(PkiServPid, JsonTerm))
+                                       key_delete_post(PkiServPid, JsonTerm))
             end;
         ["key", "export"] ->
-            case rest_util:parse_body(Request, Body,
-                            [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(
+                   Request, Body,
+                   [{jsone_options, [{object_format, proplist}]}]) of
                 {error, _Reason} ->
-                    rest_util:response(Socket, Request,
-                             {error, bad_request, "Invalid JSON format"});
+                    rest_util:response(
+                      Socket, Request,
+                      {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
                     [PkiServPid] = get_worker_pids([pki_serv], Options),
-                    rest_util:response(Socket, Request,
-                             key_export_post(Options, PkiServPid, JsonTerm))
+                    rest_util:response(
+                      Socket, Request,
+                      key_export_post(Options, PkiServPid, JsonTerm))
             end;
         ["key", "import"] ->
             case Body of
@@ -376,11 +378,22 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
             end;
+	_ ->
+	    ?dbg_log_fmt("~p not found", [Tokens]),
+	    rest_util:response(Socket, Request, {error, not_found})
+    end;
+handle_http_post(Socket, Request, Options, Url, Tokens, Body, dt) ->
+    case Tokens of
+	_Other ->
+	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
+    end;
+handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
+    case Tokens of
 	_Other ->
 	    handle_http_post(Socket, Request, Options, Url, Tokens, Body, v1)
     end.
 
-%% /dj/get-config (POST)
+%% /get-config (POST)
 
 get_config_post(Filter) when is_list(Filter) ->
     try
@@ -463,7 +476,7 @@ shared_decrypt_secret_key(DecodedSecretKey) ->
     SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
     player_crypto:shared_decrypt(SharedKey, DecodedSecretKey).
 
-%% /dj/edit-config (POST)
+%% /edit-config (POST)
 
 edit_config_post(JsonTerm) ->
     try
@@ -506,7 +519,7 @@ edit_config_merge([{Name, _OldValue}|OldJsonTerm],
 edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
     [{Name, OldValue}|edit_config_merge(OldJsonTerm, NewJsonTerm)].
 
-%% /dj/key/filter (POST)
+%% /key/filter (POST)
 
 key_filter_post(PkiServPid, JsonTerm) ->
     key_filter(PkiServPid, JsonTerm, {[], 100}).
@@ -532,7 +545,7 @@ key_filter(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
 key_filter(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
     {error, bad_request, "Invalid filter"}.
 
-%% /dj/key/delete (POST)
+%% /key/delete (POST)
 
 key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
     key_delete(PkiServPid, Nyms, []);
@@ -558,7 +571,7 @@ key_delete(PkiServPid, [Nym|Rest], Failures)
 key_delete(PkiServPid, [_|Rest], Failures) ->
     key_delete(PkiServPid, Rest, Failures).
 
-%% /dj/key/export (POST)
+%% /key/export (POST)
 
 key_export_post(Options, PkiServPid, <<"all">>) ->
 {ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
@@ -598,7 +611,7 @@ key_export(PkiServPid, [Nym|Rest], UriPath, File, N, MD5Context)
 key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
     {error, bad_request, "Invalid nyms"}.
 
-%% /dj/key/import (POST)
+%% /key/import (POST)
 
 key_import_post(PkiServPid, FormData) ->
     case lists:keysearch(file, 1, FormData) of
@@ -610,9 +623,7 @@ key_import_post(PkiServPid, FormData) ->
                           ok ->
                               ok;
                           {error, no_such_key} ->
-                              ok = local_pki_serv:create(PkiServPid, PublicKey);
-                          {error, Reason} ->
-                              {error, Reason}
+                              ok = local_pki_serv:create(PkiServPid, PublicKey)
                       end
               end);
         false ->
