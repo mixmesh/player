@@ -8,7 +8,6 @@
 -export([pick_as_source/1]).
 -export([send_message/3]).
 -export([start_location_updating/1]).
--export([get_unique_id/0]).
 -export_type([message_id/0, pick_mode/0]).
 
 -include_lib("apptools/include/log.hrl").
@@ -52,10 +51,10 @@
          x = none :: integer() | none,
          y = none :: integer() | none,
          neighbour_state = #{} ::
-           #{nodis:node_address() => nodis:node_state() },
-	 neighbour_pid = #{} ::
-           #{nodis:address() => undefined | pid(),
-             pid() => nodis:node_address() },
+           #{nodis:addr() => nodis:state() },
+	 neighbour_mon = #{} ::
+           #{nodis:addr() => undefined | pid(),
+	     reference() => {nodis:addr(),pid()}},
          is_zombie = false :: boolean(),
          picked_as_source = false :: boolean(),
          pick_mode = is_nothing :: pick_mode(),
@@ -211,13 +210,6 @@ send_message(Pid, RecipientNym, Payload) ->
 start_location_updating(Pid) ->
     serv:cast(Pid, start_location_updating).
 
-%% Exported: get_unique_id
-
--spec get_unique_id() -> pos_integer().
-
-get_unique_id() ->
-    erlang:unique_integer([positive]).
-
 %%
 %% Server
 %%
@@ -271,7 +263,7 @@ message_handler(
          x = X,
          y = Y,
          neighbour_state = NeighbourState,
-	 neighbour_pid = NeighbourPid,
+	 neighbour_mon = NeighbourMon,
          is_zombie = IsZombie,
          picked_as_source = _PickedAsSource,
          pick_mode = PickMode,
@@ -291,6 +283,8 @@ message_handler(
         {cast, pause} ->
             {noreply, State#state{paused = true}};
         {cast, resume} ->
+	    %% FIXME: is this used? location update should be restarted!
+	    %% if already started that is
             {noreply, State#state{paused = false}};
 
         {cast, {become_forwarder, MessageMD5}} ->
@@ -468,65 +462,51 @@ message_handler(
         {cast, start_location_updating} ->
             self() ! {location_updated, 0},
             noreply;
+
         %%
         %% Nodis subscription events
         %%
         {nodis, NodisSubscription, {pending, NAddr}} ->
             ?dbg_log_tag(nodis, {pending, NAddr}),
             NeighbourState1 = NeighbourState#{ NAddr => pending },
-            NeighbourPid1 = NeighbourPid#{ NAddr => undefined },
             update_neighbours(Simulated, Nym, NeighbourState1),
-            {noreply, State#state{neighbour_state=NeighbourState1,
-                                  neighbour_pid=NeighbourPid1 }};
+            {noreply, State#state{neighbour_state=NeighbourState }};
+
         {nodis, NodisSubscription, {up, NAddr}} ->
             ?dbg_log_tag(nodis, {up, NAddr}),
-            case maps:get(NAddr, NeighbourPid, undefined) of
-                undefined when SyncAddress > NAddr ->
-                    {ok, Pid} = player_sync_serv:connect(
-                                  self(),
-				  NodisServPid,
-                                  NAddr,
-                                  #player_sync_serv_options{
-                                     simulated =  Simulated,
-                                     sync_address = SyncAddress,
-                                     f = ?F,
-                                     keys = Keys}),
-                    %% double map!
-                    NeighbourPid1 = NeighbourPid#{ Pid => NAddr, NAddr => Pid},
-		    %% NeighbourState1 = NeighbourState#{ NAddr => {up,false} },
-		    %% update_neighbours(Simulated, Nym, NeighbourState1),
-                    %% update player_db?
-                    {noreply, State#state{neighbour_state=NeighbourState,
-                                          neighbour_pid = NeighbourPid1 }};
+            case maps:get(NAddr, NeighbourMon, undefined) of
                 undefined ->
-		    NeighbourState1 = NeighbourState#{ NAddr => {up,false} },
-		    update_neighbours(Simulated, Nym, NeighbourState1),
-                    NeighbourPid1 = NeighbourPid#{ NAddr => undefined },
-                    {noreply, State#state{neighbour_state=NeighbourState1,
-                                          neighbour_pid=NeighbourPid1 }};
+                    player_sync_serv:connect(
+		      self(),
+		      NodisServPid,
+		      NAddr,
+		      #player_sync_serv_options{
+			 simulated = Simulated,
+			 sync_address = SyncAddress,
+			 f = ?F,
+			 keys = Keys}),
+		    %% put in pid here? now in {sync,..}
+		    {noreply, State};
 
                 Pid when is_pid(Pid) ->
-                    ?dbg_log_tag(nodis, {up, NAddr}),
+                    ?dbg_log_tag(nodis, {up_already, NAddr}),
 		    %% Strange got up when up already in a connection, ignore
-                    {noreply, State#state{neighbour_state=NeighbourState}}
+                    {noreply, State}
             end;
 
         {nodis, NodisSubscription, {down,NAddr}} ->
             ?dbg_log_tag(nodis, {down, NAddr}),
             NeighbourState1 = NeighbourState#{ NAddr => down },
             update_neighbours(Simulated, Nym, NeighbourState1),
-            case maps:get(NAddr, NeighbourPid, undefined) of
+            case maps:get(NAddr, NeighbourMon, undefined) of
                 Pid when is_pid(Pid) ->
-                    io:format("Kill sync server ~p\n", [Pid]),
-                    exit(Pid, die),
+		    %% let sync_server get a chance to terminate?
+                    %% io:format("Kill sync server ~p\n", [Pid]),
+                    %% exit(Pid, softkill),
                     {noreply, State#state{neighbour_state=NeighbourState1}};
                 _ ->
                     {noreply, State#state{neighbour_state=NeighbourState1}}
             end;
-
-        {nodis, NodisSubscription, {missed, NAddr}} ->
-            ?dbg_log_tag(nodis, {missed, NAddr}),
-            noreply;
 
         {nodis, NodisSubscription, {wait,NAddr}} ->
 	    %% neighbour entering wait state (like down)
@@ -536,42 +516,52 @@ message_handler(
 	    {noreply, State#state{neighbour_state=NeighbourState1}};
 
 	%% player sync messages
-	{sync, _Pid, NAddr, {up,ConState}} -> %% from sync_serv
+	{sync, SyncPid, NAddr, {up,ConState}} -> %% from sync_serv
             ?dbg_log_tag(sync, {up,NAddr,ConState}),
-	    %% Maybe we should match Pid with neighbour pid?
+	    Mon = erlang:monitor(process, SyncPid),
 	    NeighbourState1 = NeighbourState#{ NAddr => {up,ConState} },
 	    update_neighbours(Simulated, Nym, NeighbourState1),
-	    {noreply, State#state{neighbour_state=NeighbourState1}};
+	    NeighbourMon1 = NeighbourMon#{ Mon => {NAddr,SyncPid},
+					   NAddr => SyncPid },
+	    {noreply, State#state{neighbour_state=NeighbourState1,
+				  neighbour_mon = NeighbourMon1}};
 
-	{sync, _Pid, NAddr, {error,_Error}} -> %% from sync_serv (connect?)
-	    ?dbg_log_tag(sync, {error, NAddr, _Error}),
-	    nodis:wait(NodisServPid, NAddr),
-	    %% NeighbourState1 = NeighbourState#{ NAddr => up },
-	    {noreply, State}; %% #state{neighbour_state=NeighbourState1}};
+	{sync, _SyncPid, NAddr, {error,N,_Error}} ->
+	    ?dbg_log_tag(sync, {error,N,NAddr,_Error}),
+	    %% keep statistics on N messages
+	    {noreply, State};
 
-	{sync, _Pid, NAddr, {done,K}} -> %% from sync_serv (transmission done)
-	    ?dbg_log_tag(sync, {done,K,NAddr}),
-	    nodis:wait(NodisServPid, NAddr),
-	    %% NeighbourState1 = NeighbourState#{ NAddr => wait },
-	    %% update_neighbours(Simulated, Nym, NeighbourState1),
-	    {noreply, State}; %% #state{ neighbour_state=NeighbourState1}};
+	{sync,_SyncPid,NAddr,{done,N}} -> %% from sync_serv (transmission done)
+	    ?dbg_log_tag(sync, {done,N,NAddr}),
+	    %% keep statistics on N messages
+	    {noreply, State};
 
         {'EXIT', Parent, Reason} ->
             ok = persistent_circular_buffer:close(MessageDigests),
             ok = player_buffer:delete(BufferHandle),
             exit(Reason);
-        {'EXIT', Pid, _Reason} = UnknownMessage ->
-            case maps:get(Pid, NeighbourPid, undefined) of
-                NAddr when is_tuple(NAddr) ->
-                    NeighbourPid1 = maps:remove(Pid, NeighbourPid),
-                    NeighbourPid2 = maps:remove(NAddr, NeighbourPid1),
-                    {noreply,
-                     State#state{
-                       neighbour_pid = NeighbourPid2}};
-                undefined ->
-                    ?error_log({unknown_message, UnknownMessage}),
-                    {noreply,State}
-            end;
+
+        {'DOWN', Mon, process, SyncPid, Reason} ->
+	    %% SyncMon normal close or failure
+	    if  Reason =:= normal -> ok;
+		Reason =:= killed -> ok;  %% we killed the sync pid
+		true ->
+		    io:format("sync? process ~w down reason=~p\n", 
+			      [SyncPid, Reason])
+	    end,
+            NeighbourMon1 = 
+		case maps:get(Mon, NeighbourMon, undefined) of
+		    undefined ->
+			io:format("DOWN: sync? process ~w not found\n", 
+				  [SyncPid]),
+			NeighbourMon;
+		    {NAddr,SyncPid} ->
+			NMon1 = maps:remove(Mon, NeighbourMon),
+			NMon2 = maps:remove(NAddr, NMon1),
+			NMon2
+		end,
+	    {noreply, State#state{neighbour_mon=NeighbourMon1}};
+
         %%
         %% Below follows handling of internally generated messages
         %%
@@ -626,8 +616,6 @@ message_handler(
                     NextUpdate = trunc((NextTimestamp - Timestamp) * 1000),
                     erlang:send_after(NextUpdate, self(),
                                       {location_updated, NextTimestamp}),
-                    %%ok = print_speed(DegreesToMeters, X, Y, MetersMoved,
-                    %%                 Timestamp, NextX, NextY),
                     {noreply,
                      State#state{location_generator = NewLocationGenerator,
                                  x = NextX,
@@ -678,10 +666,9 @@ update_neighbours(false, _Nym, _Ns) ->
     true.
 
 
--spec get_neighbours(#{ nodis:node_address() => 
-			    nodis:node_state() |
+-spec get_neighbours(#{ nodis:addr() => nodis:state() |
 			{up, connect|accept|false} }) ->
-	  [{string(),nodis:node_state(),connect|accept|false}].
+	  [{string(),nodis:state(),connect|accept|false}].
 
 %% FIXME: keep nodis-address -> nym in a global state fro speed
 get_neighbours(Ns) when is_map(Ns) ->
