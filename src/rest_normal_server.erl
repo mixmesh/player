@@ -471,7 +471,9 @@ get_schema_type([_|SchemaRest], JsonPath) ->
     get_schema_type(SchemaRest, JsonPath).
 
 shared_decrypt_secret_key(DecodedSecretKey) ->
-    Pin = config:lookup([system, pin]),
+    ObscreteDir = config:lookup([system, 'obscrete-dir']),
+    PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+    {ok, Pin} = file:read_file(PinFilename),
     PinSalt = config:lookup([system, 'pin-salt']),
     SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
     player_crypto:shared_decrypt(SharedKey, DecodedSecretKey).

@@ -189,6 +189,16 @@ bootstrap_install_post(JsonTerm) ->
         PinSalt = player_crypto:pin_salt(),
         case player_crypto:make_key_pair(?b2l(Pin), PinSalt, ?b2l(Nym)) of
             {ok, PublicKey, SecretKey, EncryptedSecretKey} ->
+                PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+                case file:write_file(PinFilename, Pin) of
+                    ok ->
+                        ok;
+                    {error, _Reason} ->
+                        throw({error,
+                               io_lib:format(
+                                 "~s: Could not be created",
+                                 [PinFilename])})
+                end,
                 SourceConfigFilename =
                     filename:join(
                       [code:priv_dir(player), <<"obscrete.conf.src">>]),
@@ -219,7 +229,6 @@ bootstrap_install_post(JsonTerm) ->
                        {<<"@@POP3-ADDRESS@@">>, Pop3Address},
                        {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
                        {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
-                       {<<"@@PIN@@">>, Pin},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
                     filename:join([ObscreteDir, <<"obscrete.conf">>]),
@@ -238,7 +247,7 @@ bootstrap_install_post(JsonTerm) ->
                                        {<<"obscrete-dir">>, ObscreteDir},
                                        {<<"pin">>, Pin},
                                        {<<"pin-salt">>, EncodedPinSalt}]}};
-                    {error, _Reason} ->
+                    {error, _Reason2} ->
                         throw({error,
                                io_lib:format(
                                  "~s: Could not be created",
@@ -295,6 +304,16 @@ bootstrap_reinstall_post(JsonTerm) ->
             bad_keys ->
                 throw({error, "Invalid keys"});
             {Nym, DecodedSecretKey} ->
+                PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+                case file:write_file(PinFilename, Pin) of
+                    ok ->
+                        ok;
+                    {error, _Reason} ->
+                        throw({error,
+                               io_lib:format(
+                                 "~s: Could not be created",
+                                 [PinFilename])})
+                end,
                 {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
                 SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
                 PinSalt = player_crypto:pin_salt(),
@@ -327,7 +346,6 @@ bootstrap_reinstall_post(JsonTerm) ->
                        {<<"@@POP3-ADDRESS@@">>, Pop3Address},
                        {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
                        {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
-                       {<<"@@PIN@@">>, Pin},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
                     filename:join([ObscreteDir, <<"obscrete.conf">>]),
@@ -345,7 +363,7 @@ bootstrap_reinstall_post(JsonTerm) ->
                                        {<<"obscrete-dir">>, ObscreteDir},
                                        {<<"pin">>, Pin},
                                        {<<"pin-salt">>, EncodedPinSalt}]}};
-                    {error, _Reason} ->
+                    {error, _Reason2} ->
                         throw({error,
                                io_lib:format(
                                  "~s: Could not be created",

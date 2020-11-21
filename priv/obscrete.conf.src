@@ -2,7 +2,6 @@
     "system": {
         "initialization-time": @@INITIALIZATION-TIME@@,
         "obscrete-dir": "@@OBSCRETE-DIR@@",
-        "pin": "@@PIN@@",
         "pin-salt": "@@PIN-SALT@@"
     },
     "nodis": {
@@ -12,7 +11,6 @@
 	"min-wait-time": 30000,
 	"min-down-time": 60000,
 	"max-up-nodes": 10,
-	"max-pending-nodes": 100,
 	"max-wait-nodes": 1000,
 	"max-down-nodes": 2000
     },

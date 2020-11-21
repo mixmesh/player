@@ -32,8 +32,8 @@ start_link(Config) ->
 %% Exported: init
 
 init(normal) ->
-    [ObscreteDir, Pin, PinSalt] =
-        config:lookup_children(['obscrete-dir', pin, 'pin-salt'],
+    [ObscreteDir, PinSalt] =
+        config:lookup_children(['obscrete-dir', 'pin-salt'],
                                config:lookup([system])),
     [Nym, SyncAddress, Spiridon, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
@@ -42,6 +42,8 @@ init(normal) ->
     [F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
+    PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+    {ok, Pin} = file:read_file(PinFilename),
     SharedKey = player_crypto:pin_to_shared_key(Pin, PinSalt),
     {ok, DecryptedSecretKey} =
         player_crypto:shared_decrypt(SharedKey, EncryptedSecretKey),
