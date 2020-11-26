@@ -38,6 +38,8 @@ test2() ->
                    SafeY = window_wrap(Y, Height),
                    %%io:format("3: ~p\n", [{X, Y}]),
                    epx:draw_ellipse(Background, SafeX, SafeY, 2, 2),
+                   draw_ellipse(
+                     Background, SafeX, SafeY, SafeX+50, SafeY + 50, 40),
                    %%epx:pixmap_put_pixel(Background, SafeX, SafeY, black),
                    update_window(Width, Height, Window, Pixels, Background),
                    {SafeX, SafeY}
@@ -63,6 +65,54 @@ iterate(Window, NextXDelta, NextYDelta, X, Y, Plot) ->
         false ->
             %%timer:sleep(100),
             iterate(Window, EvenNextXDelta, EvenNextYDelta, SafeX, SafeY, Plot)
+    end.
+
+test3() ->
+    epx:start(),
+    Width = 2048,
+    Height = 2048,
+    Pixels = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_attach(Pixels),
+    Background = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_fill(Background, {255, 255, 255, 255}),
+    Window = epx:window_create(
+               0, 0, Width, Height, [button_press, button_release]),
+    epx:window_attach(Window),
+    draw_ellipse(Background, 100, 200, 200, 300, 200),
+    update_window(Width, Height, Window, Pixels, Background),
+    is_window_closed(Window, infinity).
+
+%% https://stackoverflow.com/questions/11944767/draw-an-ellipse-based-on-its-foci/11947391#11947391
+
+draw_ellipse(Pixmap, X1, Y1, X2, Y2, K) ->
+    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 5, not_set, 0).
+
+draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T)
+  when T > Stop ->
+    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {stop, Last}, Stop);
+draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T) ->
+    %% Major axis
+    A = K / 2.0, 
+    %% Coordinates of the center
+    Xc = (X1 + X2) / 2.0,
+    Yc = (Y1 + Y2) / 2.0,
+    %% Distance of the foci to the center
+    Dc = math:sqrt(math:pow(X1 - X2, 2) + math:pow(Y1 - Y2, 2)) / 2,
+    %% Minor axis
+    B = math:sqrt(abs(math:pow(A, 2) - math:pow(Dc, 2))),
+    Phi = math:atan(abs(Y1 - Y2) / abs(X1 - X2)),
+    Xt = Xc + A * math:cos(T) * math:cos(Phi) - B * math:sin(T) * math:sin(Phi),
+    Yt = Yc + A * math:cos(T) * math:sin(Phi) + B * math:sin(T) * math:cos(Phi),
+    case Last of
+        not_set ->
+            draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
+                         T + Step);
+        {stop, {X, Y}} ->
+            epx:draw_line(Pixmap, X, Y, Xt, Yt);
+        {X, Y} ->
+            epx:draw_line(Pixmap, X, Y, Xt, Yt),
+            draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
+                         T + Step)
     end.
 
 is_window_closed(Window, Timeout) ->
