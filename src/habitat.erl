@@ -3,89 +3,97 @@
 
 -define(PI, 3.141592).
 -define(RADIANS_PER_DEGREE, (?PI / 180)).
+-define(PIXEL_FORMAT, rgb).
+%% https://lospec.com/palette-list/cingi-25
+-define(BACKGROUND_COLOR, {232, 236, 242}).
+-define(HABITAT_COLOR, {31, 37, 54}).
+-define(LOCATION_COLOR, {224, 62, 34}).
 
 -record(habitat,
         {f1 :: number(),
          f2 :: number(),
          r :: number()}).
 
-test1() ->
-    Latitude = 51.509865,
-    Longitude = -0.118092,
-    {X, Y, _Z} = geodetic_to_ecef_coordinates(Latitude, Longitude, 0),
-    L = {X, Y}, %% Initial location
-    H = init_habitat(L),
-    NewL = {X + 12, Y + 100},
-    W = 3600 / 2, % Updates per hour
-    T = 1,  %% Time to consider in hours
-    Alpha = calculate_alpha(W, T),
-    Beta = 60,
-    {H, update_habitat(H, NewL, Alpha, Beta)}.
-
-test2() ->
-    epx:start(),
+start() ->
+    application:ensure_all_started(epx),
     Width = 2048,
     Height = 2048,
-    Pixels = epx:pixmap_create(Width, Height, argb),
+    Pixels = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
     epx:pixmap_attach(Pixels),
-    Background = epx:pixmap_create(Width, Height, argb),
-    epx:pixmap_fill(Background, {255, 255, 255, 255}),
+    Background = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
+    epx:pixmap_fill(Background, ?BACKGROUND_COLOR),
     Window = epx:window_create(
                0, 0, Width, Height, [button_press, button_release]),
     epx:window_attach(Window),
-    Plot = fun(X, Y) ->
+    Plot = fun(clear) ->
+                   epx:pixmap_fill(Background, ?BACKGROUND_COLOR);
+              (update_window) ->
+                   update_window(Width, Height, Window, Pixels, Background);
+              ({{X, Y}, SavedLocations}) ->
                    SafeX = window_wrap(X, Width),
                    SafeY = window_wrap(Y, Height),
-                   %%io:format("3: ~p\n", [{X, Y}]),
+                   epx_gc:set_fill_color(?LOCATION_COLOR),
                    epx:draw_ellipse(Background, SafeX, SafeY, 2, 2),
-                   draw_ellipse(
-                     Background, SafeX, SafeY, SafeX+50, SafeY + 50, 40),
+                   lists:foreach(
+                     fun({SavedX, SavedY}) ->
+                             epx:draw_ellipse(Background, SavedX, SavedY, 2, 2)
+                     end, SavedLocations),
                    %%epx:pixmap_put_pixel(Background, SafeX, SafeY, black),
-                   update_window(Width, Height, Window, Pixels, Background),
-                   {SafeX, SafeY}
+                   {SafeX, SafeY};
+              (#habitat{r = 0}) ->
+                   skip;
+              (#habitat{f1 = {F1X, F1Y}, f2 = {F2X, F2Y}, r = R}) ->
+                   epx_gc:set_foreground_color(?HABITAT_COLOR),
+                   draw_ellipse(Background, F1X, F1Y, F2X, F2Y, R)
            end,
+    DeltaScale = 16,
+    W = 1800, % Updates per hour
+    T = 0.1,  %% Time to consider in hours 
+    SpeedFactor = 10,
+    Delay = trunc(3600 / W * 1000 / SpeedFactor),
+    Alpha = calculate_alpha(W, T),
+    Beta = 60,
     iterate(Window,
             fun() -> noise(0.05) end,
             fun() -> noise(0.05) end,
-            Width / 2, Height / 2, Plot).
+            Width / 2, Height / 2, DeltaScale, not_set, Delay, Alpha, Beta,
+            Plot, []).
 
 window_wrap(Value, Limit) when Value > Limit -> 0;
 window_wrap(Value, Limit) when Value < 0 -> Limit;
 window_wrap(Value, _Limit) -> Value.
 
-iterate(Window, NextXDelta, NextYDelta, X, Y, Plot) ->
+iterate(Window, NextXDelta, NextYDelta, X, Y, DeltaScale, Habitat, Delay,
+        Alpha, Beta, Plot, SavedLocations) ->
     {XDelta, EvenNextXDelta} = NextXDelta(),
     {YDelta, EvenNextYDelta} = NextYDelta(),
-    NewX = X + (XDelta * 8 - 4),
-    NewY = Y + (YDelta * 8 - 4),
-    {SafeX, SafeY} = Plot(NewX , NewY),
+    NewX = X + (XDelta * DeltaScale - DeltaScale / 2),
+    NewY = Y + (YDelta * DeltaScale - DeltaScale / 2),
+    Plot(clear),
+    {SafeX, SafeY} = Plot({{NewX , NewY}, SavedLocations}),
+    UpdatedHabitat =
+        case Habitat of
+            not_set ->
+                init_habitat({SafeX, SafeY});
+            _ ->
+                update_habitat(Habitat, {SafeX, SafeY}, Alpha, Beta)
+        end,
+    Plot(UpdatedHabitat),
+    Plot(update_window),
     case is_window_closed(Window, 0) of
         true ->
             ok;
         false ->
-            %%timer:sleep(100),
-            iterate(Window, EvenNextXDelta, EvenNextYDelta, SafeX, SafeY, Plot)
+            timer:sleep(Delay),
+            iterate(Window, EvenNextXDelta, EvenNextYDelta, SafeX, SafeY,
+                    DeltaScale, UpdatedHabitat, Delay, Alpha, Beta, Plot,
+                    [{SafeX, SafeY}|SavedLocations])
     end.
-
-test3() ->
-    epx:start(),
-    Width = 2048,
-    Height = 2048,
-    Pixels = epx:pixmap_create(Width, Height, argb),
-    epx:pixmap_attach(Pixels),
-    Background = epx:pixmap_create(Width, Height, argb),
-    epx:pixmap_fill(Background, {255, 255, 255, 255}),
-    Window = epx:window_create(
-               0, 0, Width, Height, [button_press, button_release]),
-    epx:window_attach(Window),
-    draw_ellipse(Background, 100, 200, 200, 300, 200),
-    update_window(Width, Height, Window, Pixels, Background),
-    is_window_closed(Window, infinity).
 
 %% https://stackoverflow.com/questions/11944767/draw-an-ellipse-based-on-its-foci/11947391#11947391
 
 draw_ellipse(Pixmap, X1, Y1, X2, Y2, K) ->
-    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 5, not_set, 0).
+    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 20, not_set, 0).
 
 draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T)
   when T > Stop ->
@@ -139,7 +147,7 @@ update_habitat(H, NewL, Alpha, Beta) ->
     #habitat{f1 = F1, f2 = F2, r = R}.
 
 %% Section 3.3.2
-update_focal_points(#habitat{f1 = F1, f2 = F2, r = 0}, L, Alpha, Beta) ->
+update_focal_points(#habitat{f1 = F1, f2 = F2, r = _R}, L, Alpha, Beta) ->
     {F1Old, F2Old} =
         case {d(F1, L), d(F2, L)} of
             {F1LDistance, F2LDistance} when F1LDistance < F2LDistance ->
@@ -198,6 +206,7 @@ smoothstep(A, B, W) ->
 
 %% https://en.m.wikipedia.org/wiki/Geographic_coordinate_conversion#From_geodetic_to_ECEF_coordinates 
 %% https://en.m.wikipedia.org/wiki/Geodetic_datum#World_Geodetic_System_1984_(WGS_84)
+
 geodetic_to_ecef_coordinates(Latitude, Longitude, H) ->
     CLatitude = math:cos(Latitude * ?RADIANS_PER_DEGREE),
     SLatitude = math:sin(Latitude *  ?RADIANS_PER_DEGREE),
@@ -216,3 +225,35 @@ geodetic_to_ecef_coordinates(Latitude, Longitude, H) ->
     Y = (N + H) * CLatitude * SLongitude, 
     Z  = (B2 / A2 * N + H) * SLatitude,
     {X, Y, Z}.
+
+%%
+%% Tests
+%%
+
+thabitat() ->
+    Latitude = 51.509865,
+    Longitude = -0.118092,
+    {X, Y, _Z} = geodetic_to_ecef_coordinates(Latitude, Longitude, 0),
+    L = {X, Y}, %% Initial location
+    H = init_habitat(L),
+    NewL = {X + 12, Y + 100},
+    W = 3600 / 2, % Updates per hour
+    T = 1,  %% Time to consider in hours
+    Alpha = calculate_alpha(W, T),
+    Beta = 60,
+    {H, update_habitat(H, NewL, Alpha, Beta)}.
+
+tellipse() ->
+    epx:start(),
+    Width = 2048,
+    Height = 2048,
+    Pixels = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_attach(Pixels),
+    Background = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_fill(Background, {255, 255, 255, 255}),
+    Window = epx:window_create(
+               0, 0, Width, Height, [button_press, button_release]),
+    epx:window_attach(Window),
+    draw_ellipse(Background, 100, 200, 200, 300, 200),
+    update_window(Width, Height, Window, Pixels, Background),
+    is_window_closed(Window, infinity).
