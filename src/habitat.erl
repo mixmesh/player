@@ -7,7 +7,11 @@
 %% https://lospec.com/palette-list/cingi-25
 -define(BACKGROUND_COLOR, {232, 236, 242}).
 -define(HABITAT_COLOR, {31, 37, 54}).
--define(LOCATION_COLOR, {224, 62, 34}).
+-define(PLAYER_COLOR0, {255, 0, 0}).
+-define(PLAYER_COLOR1, {255, 0, 255}).
+-define(PLAYER_COLOR2, {0, 255, 255}).
+-define(PLAYER_COLOR3, {128, 0, 128}).
+-define(PLAYER_COLOR4, {0, 255, 0}).
 
 -record(habitat,
         {f1 :: number(),
@@ -29,69 +33,95 @@ start() ->
                    epx:pixmap_fill(Background, ?BACKGROUND_COLOR);
               (update_window) ->
                    update_window(Width, Height, Window, Pixels, Background);
-              ({{X, Y}, SavedLocations}) ->
-                   SafeX = window_wrap(X, Width),
-                   SafeY = window_wrap(Y, Height),
-                   epx_gc:set_fill_color(?LOCATION_COLOR),
-                   epx:draw_ellipse(Background, SafeX, SafeY, 2, 2),
+              ({{X, Y}, Color, SavedLocations}) ->
+                   SafeX = window_fence(X, Width),
+                   SafeY = window_fence(Y, Height),
+                   epx_gc:set_fill_color(Color),
+                   %%epx:draw_ellipse(Background, SafeX, SafeY, 2, 2),
+                   %%epx:pixmap_put_pixel(
+                   %%  Background, SafeX, SafeY, Color),
+                   epx:draw_rectangle(Background, SafeX, SafeY, 2, 2),
                    lists:foreach(
                      fun({SavedX, SavedY}) ->
-                             epx:draw_ellipse(Background, SavedX, SavedY, 2, 2)
-                     end, SavedLocations),
-                   %%epx:pixmap_put_pixel(Background, SafeX, SafeY, black),
+                             epx:draw_rectangle(
+                               Background, SavedX, SavedY, 2, 2)
+                     end, SavedLocations),                   
                    {SafeX, SafeY};
               (#habitat{r = 0}) ->
                    skip;
               (#habitat{f1 = {F1X, F1Y}, f2 = {F2X, F2Y}, r = R}) ->
                    epx_gc:set_foreground_color(?HABITAT_COLOR),
+                   %%epx_gc:set_line_style(dashed),
                    draw_ellipse(Background, F1X, F1Y, F2X, F2Y, R)
            end,
-    DeltaScale = 16,
+    DeltaScale = 8,
     W = 1800, % Updates per hour
     T = 0.1,  %% Time to consider in hours 
     SpeedFactor = 10,
     Delay = trunc(3600 / W * 1000 / SpeedFactor),
     Alpha = calculate_alpha(W, T),
     Beta = 60,
+    Width4 = Width / 4,
+    Height4 = Height / 4,
     iterate(Window,
-            fun() -> noise(0.05) end,
-            fun() -> noise(0.05) end,
-            Width / 2, Height / 2, DeltaScale, not_set, Delay, Alpha, Beta,
-            Plot, []).
+            [{fun() -> noise(0.05) end,
+              fun() -> noise(0.05) end,
+              Width4, Height4, ?PLAYER_COLOR0, not_set, []},
+             {fun() -> noise(0.05) end,
+              fun() -> noise(0.05) end,
+              Width4 * 3, Height4, ?PLAYER_COLOR1, not_set, []},
+             {fun() -> noise(0.05) end,
+              fun() -> noise(0.05) end,
+              Width4 * 2, Height4 * 2, ?PLAYER_COLOR2, not_set, []},
+             {fun() -> noise(0.05) end,
+              fun() -> noise(0.05) end,
+              Width4, Height4 * 3, ?PLAYER_COLOR3, not_set, []},
+             {fun() -> noise(0.05) end,
+              fun() -> noise(0.05) end,
+              Width4 * 3, Height4 * 3, ?PLAYER_COLOR4, not_set, []}],
+            DeltaScale, Delay, Alpha, Beta, Plot).
 
-window_wrap(Value, Limit) when Value > Limit -> 0;
-window_wrap(Value, Limit) when Value < 0 -> Limit;
-window_wrap(Value, _Limit) -> Value.
+window_fence(Value, Limit) when Value > Limit ->
+    Limit - Limit / 40;
+window_fence(Value, Limit) when Value < 0 ->
+    Limit / 40;
+window_fence(Value, _Limit) ->
+    Value.
 
-iterate(Window, NextXDelta, NextYDelta, X, Y, DeltaScale, Habitat, Delay,
-        Alpha, Beta, Plot, SavedLocations) ->
-    {XDelta, EvenNextXDelta} = NextXDelta(),
-    {YDelta, EvenNextYDelta} = NextYDelta(),
-    NewX = X + (XDelta * DeltaScale - DeltaScale / 2),
-    NewY = Y + (YDelta * DeltaScale - DeltaScale / 2),
+iterate(Window, Players, DeltaScale, Delay, Alpha, Beta, Plot) ->
     Plot(clear),
-    {SafeX, SafeY} = Plot({{NewX , NewY}, SavedLocations}),
-    UpdatedHabitat =
-        case Habitat of
-            not_set ->
-                init_habitat({SafeX, SafeY});
-            _ ->
-                update_habitat(Habitat, {SafeX, SafeY}, Alpha, Beta)
-        end,
-    Plot(UpdatedHabitat),
+    UpdatedPlayers =
+        lists:foldl(
+          fun({NextXDelta, NextYDelta, X, Y, Color, Habitat, SavedLocations},
+              Acc) ->
+                  {XDelta, EvenNextXDelta} = NextXDelta(),
+                  {YDelta, EvenNextYDelta} = NextYDelta(),
+                  NewX = X + (XDelta * DeltaScale - DeltaScale / 2),
+                  NewY = Y + (YDelta * DeltaScale - DeltaScale / 2),
+                  {SafeX, SafeY} = Plot({{NewX , NewY}, Color, SavedLocations}),
+                  UpdatedHabitat =
+                      case Habitat of
+                          not_set ->
+                              init_habitat({SafeX, SafeY});
+                          _ ->
+                              update_habitat(Habitat, {SafeX, SafeY}, Alpha,
+                                             Beta)
+                      end,
+                  Plot(UpdatedHabitat),
+                  [{EvenNextXDelta, EvenNextYDelta, SafeX, SafeY, Color,
+                    UpdatedHabitat, [{SafeX, SafeY}|SavedLocations]}|Acc]
+          end, [], Players),
     Plot(update_window),
     case is_window_closed(Window, 0) of
         true ->
             ok;
         false ->
             timer:sleep(Delay),
-            iterate(Window, EvenNextXDelta, EvenNextYDelta, SafeX, SafeY,
-                    DeltaScale, UpdatedHabitat, Delay, Alpha, Beta, Plot,
-                    [{SafeX, SafeY}|SavedLocations])
+            iterate(Window, UpdatedPlayers, DeltaScale, Delay, Alpha, Beta,
+                    Plot)
     end.
 
 %% https://stackoverflow.com/questions/11944767/draw-an-ellipse-based-on-its-foci/11947391#11947391
-
 draw_ellipse(Pixmap, X1, Y1, X2, Y2, K) ->
     draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 20, not_set, 0).
 
