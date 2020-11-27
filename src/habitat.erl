@@ -82,9 +82,9 @@ start() ->
             DeltaScale, Delay, Alpha, Beta, Plot).
 
 window_fence(Value, Limit) when Value > Limit ->
-    Limit - Limit / 40;
+    Limit - Limit / 80;
 window_fence(Value, Limit) when Value < 0 ->
-    Limit / 40;
+    Limit / 80;
 window_fence(Value, _Limit) ->
     Value.
 
