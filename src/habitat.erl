@@ -13,7 +13,7 @@
 -define(PLAYER_COLOR2, {0, 255, 255}).
 -define(PLAYER_COLOR3, {128, 0, 128}).
 -define(PLAYER_COLOR4, {0, 255, 0}).
--define(MAX_SAVED_LOCATIONS, 400).
+-define(MAX_SAVED_LOCATIONS, 200).
 
 -record(habitat,
         {f1 :: number(),
@@ -42,21 +42,19 @@ demo() ->
                    SafeX = window_fence(X, Width),
                    SafeY = window_fence(Y, Height),
                    epx_gc:set_fill_color(Color),
-                   %%epx:draw_ellipse(Canvas, SafeX, SafeY, 2, 2),
-                   %%epx:pixmap_put_pixel(Canvas, SafeX, SafeY, Color),
-                   epx:draw_rectangle(Canvas, SafeX, SafeY, 6, 6),
-                   lists:foreach(
-                     fun({SavedX, SavedY}) ->
-                             %%epx:draw_ellipse(Canvas, SavedX, SavedY, 2, 2)
-                             %%epx:pixmap_put_pixel(Canvas, SavedX, SavedY, Color)
-                             epx:draw_rectangle(Canvas, SavedX, SavedY, 2, 2)
-                     end, SavedLocations),                   
+                   epx:draw_rectangle(Canvas, SafeX - 2, SafeY - 2, 4, 4),
+                   epx_gc:set_foreground_color(Color),
+                   (fun F([{X1, Y1}, {X2, Y2}|Rest]) ->
+                            epx:draw_line(Canvas, X1, Y1, X2, Y2),
+                            F([{X2, Y2}|Rest]);
+                        F(_) ->
+                            ok
+                    end)([{SafeX, SafeY}|SavedLocations]),
                    {SafeX, SafeY};
               (#habitat{r = 0}) ->
                    skip;
               (#habitat{f1 = {F1X, F1Y}, f2 = {F2X, F2Y}, r = R}) ->
                    epx_gc:set_foreground_color(?HABITAT_COLOR),
-                   %%epx_gc:set_line_style(dashed),
                    draw_ellipse(Canvas, F1X, F1Y, F2X, F2Y, R)
            end,
     DeltaScale = 10,
@@ -121,8 +119,7 @@ iterate(Window, Players, DeltaScale, Delay, Alpha, Beta, Plot) ->
                               [{SafeX, SafeY}|SavedLocations]
                       end,
                   [{EvenNextXDelta, EvenNextYDelta, SafeX, SafeY, Color,
-                    UpdatedHabitat,
-                    [{SafeX, SafeY}|UpdatedSavedLocations]}|Acc]
+                    UpdatedHabitat, UpdatedSavedLocations}|Acc]
           end, [], Players),
     Plot(update_window),
     case is_window_closed(Window, 0) of
