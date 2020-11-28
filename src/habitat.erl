@@ -1,5 +1,6 @@
 -module(habitat).
--compile(export_all).
+-export([demo/0]).
+-export([thabitat/0, tellipse/0]). % tests
 
 -define(PI, 3.141592).
 -define(RADIANS_PER_DEGREE, (?PI / 180)).
@@ -12,39 +13,43 @@
 -define(PLAYER_COLOR2, {0, 255, 255}).
 -define(PLAYER_COLOR3, {128, 0, 128}).
 -define(PLAYER_COLOR4, {0, 255, 0}).
+-define(MAX_SAVED_LOCATIONS, 400).
 
 -record(habitat,
         {f1 :: number(),
          f2 :: number(),
          r :: number()}).
 
-start() ->
+demo() ->
     application:ensure_all_started(epx),
-    Width = 2048,
-    Height = 2048,
-    Pixels = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
-    epx:pixmap_attach(Pixels),
-    Background = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
-    epx:pixmap_fill(Background, ?BACKGROUND_COLOR),
+    Width = 1037,
+    Height = 851,
+    Pixmap = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
+    epx:pixmap_attach(Pixmap),
+    Filename = filename:join([code:priv_dir(player), "small-area-51.xpm"]),
+    {ok, BackgroundImage} = epx_image:load(Filename),
+    Background = hd(epx_image:pixmaps(BackgroundImage)),
+    Canvas = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
+    epx:pixmap_copy_to(Background, Canvas),
     Window = epx:window_create(
                0, 0, Width, Height, [button_press, button_release]),
     epx:window_attach(Window),
     Plot = fun(clear) ->
-                   epx:pixmap_fill(Background, ?BACKGROUND_COLOR);
+                   epx:pixmap_copy_to(Background, Canvas);
               (update_window) ->
-                   update_window(Width, Height, Window, Pixels, Background);
+                   update_window(Width, Height, Window, Pixmap, Canvas);
               ({{X, Y}, Color, SavedLocations}) ->
                    SafeX = window_fence(X, Width),
                    SafeY = window_fence(Y, Height),
                    epx_gc:set_fill_color(Color),
-                   %%epx:draw_ellipse(Background, SafeX, SafeY, 2, 2),
-                   %%epx:pixmap_put_pixel(
-                   %%  Background, SafeX, SafeY, Color),
-                   epx:draw_rectangle(Background, SafeX, SafeY, 2, 2),
+                   %%epx:draw_ellipse(Canvas, SafeX, SafeY, 2, 2),
+                   %%epx:pixmap_put_pixel(Canvas, SafeX, SafeY, Color),
+                   epx:draw_rectangle(Canvas, SafeX, SafeY, 6, 6),
                    lists:foreach(
                      fun({SavedX, SavedY}) ->
-                             epx:draw_rectangle(
-                               Background, SavedX, SavedY, 2, 2)
+                             %%epx:draw_ellipse(Canvas, SavedX, SavedY, 2, 2)
+                             %%epx:pixmap_put_pixel(Canvas, SavedX, SavedY, Color)
+                             epx:draw_rectangle(Canvas, SavedX, SavedY, 2, 2)
                      end, SavedLocations),                   
                    {SafeX, SafeY};
               (#habitat{r = 0}) ->
@@ -52,12 +57,12 @@ start() ->
               (#habitat{f1 = {F1X, F1Y}, f2 = {F2X, F2Y}, r = R}) ->
                    epx_gc:set_foreground_color(?HABITAT_COLOR),
                    %%epx_gc:set_line_style(dashed),
-                   draw_ellipse(Background, F1X, F1Y, F2X, F2Y, R)
+                   draw_ellipse(Canvas, F1X, F1Y, F2X, F2Y, R)
            end,
-    DeltaScale = 8,
+    DeltaScale = 10,
     W = 1800, % Updates per hour
     T = 0.1,  %% Time to consider in hours 
-    SpeedFactor = 10,
+    SpeedFactor = 8,
     Delay = trunc(3600 / W * 1000 / SpeedFactor),
     Alpha = calculate_alpha(W, T),
     Beta = 60,
@@ -108,8 +113,16 @@ iterate(Window, Players, DeltaScale, Delay, Alpha, Beta, Plot) ->
                                              Beta)
                       end,
                   Plot(UpdatedHabitat),
+                  UpdatedSavedLocations =
+                      case length(SavedLocations) > ?MAX_SAVED_LOCATIONS of
+                          true ->
+                              [{SafeX, SafeY}|lists:droplast(SavedLocations)];
+                          false ->
+                              [{SafeX, SafeY}|SavedLocations]
+                      end,
                   [{EvenNextXDelta, EvenNextYDelta, SafeX, SafeY, Color,
-                    UpdatedHabitat, [{SafeX, SafeY}|SavedLocations]}|Acc]
+                    UpdatedHabitat,
+                    [{SafeX, SafeY}|UpdatedSavedLocations]}|Acc]
           end, [], Players),
     Plot(update_window),
     case is_window_closed(Window, 0) of
@@ -122,13 +135,13 @@ iterate(Window, Players, DeltaScale, Delay, Alpha, Beta, Plot) ->
     end.
 
 %% https://stackoverflow.com/questions/11944767/draw-an-ellipse-based-on-its-foci/11947391#11947391
-draw_ellipse(Pixmap, X1, Y1, X2, Y2, K) ->
-    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 20, not_set, 0).
+draw_ellipse(Canvas, X1, Y1, X2, Y2, K) ->
+    draw_ellipse(Canvas, X1, Y1, X2, Y2, K, 2 * ?PI, ?PI / 20, not_set, 0).
 
-draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T)
+draw_ellipse(Canvas, X1, Y1, X2, Y2, K, Stop, Step, Last, T)
   when T > Stop ->
-    draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {stop, Last}, Stop);
-draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T) ->
+    draw_ellipse(Canvas, X1, Y1, X2, Y2, K, Stop, Step, {stop, Last}, Stop);
+draw_ellipse(Canvas, X1, Y1, X2, Y2, K, Stop, Step, Last, T) ->
     %% Major axis
     A = K / 2.0, 
     %% Coordinates of the center
@@ -143,13 +156,13 @@ draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, Last, T) ->
     Yt = Yc + A * math:cos(T) * math:sin(Phi) + B * math:sin(T) * math:cos(Phi),
     case Last of
         not_set ->
-            draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
+            draw_ellipse(Canvas, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
                          T + Step);
         {stop, {X, Y}} ->
-            epx:draw_line(Pixmap, X, Y, Xt, Yt);
+            epx:draw_line(Canvas, X, Y, Xt, Yt);
         {X, Y} ->
-            epx:draw_line(Pixmap, X, Y, Xt, Yt),
-            draw_ellipse(Pixmap, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
+            epx:draw_line(Canvas, X, Y, Xt, Yt),
+            draw_ellipse(Canvas, X1, Y1, X2, Y2, K, Stop, Step, {Xt, Yt},
                          T + Step)
     end.
 
@@ -163,9 +176,9 @@ is_window_closed(Window, Timeout) ->
             false
     end.
 
-update_window(Width, Height, Window, Pixels, Background) ->
-    epx:pixmap_copy_to(Background, Pixels),
-    epx:pixmap_draw(Pixels, Window, 0, 0, 0, 0, Width, Height).
+update_window(Width, Height, Window, Pixmap, Canvas) ->
+    epx:pixmap_copy_to(Canvas, Pixmap),
+    epx:pixmap_draw(Pixmap, Window, 0, 0, 0, 0, Width, Height).
 
 %% Section 3.3.1
 init_habitat(L0) ->
@@ -277,13 +290,13 @@ tellipse() ->
     epx:start(),
     Width = 2048,
     Height = 2048,
-    Pixels = epx:pixmap_create(Width, Height, argb),
-    epx:pixmap_attach(Pixels),
-    Background = epx:pixmap_create(Width, Height, argb),
-    epx:pixmap_fill(Background, {255, 255, 255, 255}),
+    Pixmap = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_attach(Pixmap),
+    Canvas = epx:pixmap_create(Width, Height, argb),
+    epx:pixmap_fill(Canvas, {255, 255, 255, 255}),
     Window = epx:window_create(
                0, 0, Width, Height, [button_press, button_release]),
     epx:window_attach(Window),
-    draw_ellipse(Background, 100, 200, 200, 300, 200),
-    update_window(Width, Height, Window, Pixels, Background),
+    draw_ellipse(Canvas, 100, 200, 200, 300, 200),
+    update_window(Width, Height, Window, Pixmap, Canvas),
     is_window_closed(Window, infinity).
