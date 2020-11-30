@@ -23,7 +23,7 @@
     "player": {
         "enabled": true,
         "nym": "@@NYM@@",
-        "sync-address": "@@SYNC-ADDRESS@@",
+        "sync-address": "0.0.0.0:9900",
         "spiridon": {
             "f": 0.2,
             "k": 10,
@@ -31,15 +31,15 @@
             "secret-key": "@@SECRET-KEY@@"
         },
         "smtp-server": {
-            "address": "@@SMTP-ADDRESS@@",
+            "address": "0.0.0.0:@@SMTP-PORT@@",
             "password-digest": "@@SMTP-PASSWORD-DIGEST@@"
         },
         "pop3-server": {
-            "address": "@@POP3-ADDRESS@@",
+            "address": "0.0.0.0:@@POP3-PORT@@",
             "password-digest": "@@POP3-PASSWORD-DIGEST@@"
         },
         "http-server": {
-            "address": "@@HTTP-ADDRESS@@",
+            "address": "0.0.0.0:@@HTTP-PORT@@",
             "password": "@@HTTP-PASSWORD@@"
         },
         "pki-access-settings": {

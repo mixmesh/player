@@ -1,5 +1,8 @@
 -module(pop3_serv).
 -export([start_link/5]).
+-export([check_credentials/3]).
+-export([stat/2, list/2, retr/2, dele/2, rset/2, quit/2, top/2, uidl/2, user/2,
+         pass/2, capa/2]).
 
 %% DEBUG: mpop --debug --host=127.0.0.1 --port=29900 --deliver=mbox,fnutt --keep=on --auth=user --user=alice --tls=on --tls-starttls=off --tls-certcheck=off --passwordeval='echo "baz"'
 
@@ -37,19 +40,19 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
            initial_servlet_state =
                #state{nym = Nym,
                       password_digest = PasswordDigest,
-                      check_credentials = fun check_credentials/3,
+                      check_credentials = fun ?MODULE:check_credentials/3,
                       temp_dir = TempDir},
-           servlets = [#servlet{command = stat, handler = fun stat/2},
-                       #servlet{command = list, handler = fun list/2},
-                       #servlet{command = retr, handler = fun retr/2},
-                       #servlet{command = dele, handler = fun dele/2},
-                       #servlet{command = rset, handler = fun rset/2},
-                       #servlet{command = quit, handler = fun quit/2},
-                       #servlet{command = top, handler = fun top/2},
-                       #servlet{command = uidl, handler = fun uidl/2},
-                       #servlet{command = user, handler = fun user/2},
-                       #servlet{command = pass, handler = fun pass/2},
-                       #servlet{command = capa, handler = fun capa/2}],
+           servlets = [#servlet{command = stat, handler = fun ?MODULE:stat/2},
+                       #servlet{command = list, handler = fun ?MODULE:list/2},
+                       #servlet{command = retr, handler = fun ?MODULE:retr/2},
+                       #servlet{command = dele, handler = fun ?MODULE:dele/2},
+                       #servlet{command = rset, handler = fun ?MODULE:rset/2},
+                       #servlet{command = quit, handler = fun ?MODULE:quit/2},
+                       #servlet{command = top, handler = fun ?MODULE:top/2},
+                       #servlet{command = uidl, handler = fun ?MODULE:uidl/2},
+                       #servlet{command = user, handler = fun ?MODULE:user/2},
+                       #servlet{command = pass, handler = fun ?MODULE:pass/2},
+                       #servlet{command = capa, handler = fun ?MODULE:capa/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_log_tag_fmt(system, "POP3 server starting for ~s on ~s:~w",

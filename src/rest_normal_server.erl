@@ -27,7 +27,7 @@ start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr,Port}) ->
 	proplists:get_value(send_timeout, S0, ?SEND_TIMEOUT),
     S01 = lists:foldl(fun(Key,Ai) ->
 			      proplists:delete(Key,Ai)
-		      end, S0, [port,idle_timeout,send_timeout]),
+		      end, S0, [port, idle_timeout, send_timeout]),
     ResterHttpArgs =
 	[{request_handler,
 	  {?MODULE, handle_http_request, [{temp_dir, TempDir}]}},
@@ -311,8 +311,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request,
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request,
-                                       get_config_post(JsonTerm))
+                    rest_util:response(
+                      Socket, Request, get_config_post(JsonTerm))
             end;
         ["edit-config"] ->
             case rest_util:parse_body(
@@ -323,10 +323,9 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request,
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    rest_util:response(Socket, Request,
-                                       edit_config_post(JsonTerm))
+                    rest_util:response(
+                      Socket, Request, edit_config_post(JsonTerm))
             end;
-
         ["key", "filter"] ->
             case rest_util:parse_body(
                    Request, Body,
@@ -395,7 +394,8 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 
 %% /get-config (POST)
 
-get_config_post(Filter) when is_list(Filter) ->
+get_config_post(Filter)
+  when is_list(Filter) ->
     try
         AppSchemas = obscrete_config_serv:get_schemas(),
         {ok, {format, get_config(Filter, AppSchemas)}}
@@ -440,7 +440,18 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                     end;
                 Type when Type == ipv4address_port orelse
                           Type == ipaddress_port ->
-                    {IpAddress, Port} = Value,
+                    case {Name, JsonPath} of
+                        {<<"address">>, [Server, player]}
+                          when Server == 'smtp-server' orelse
+                               Server == 'pop3-server' ->
+                            IpAddress = player_interface:get_mail_ip_address(),
+                            {_, Port} = Value;
+                        {<<"address">>, ['http-server', player]} ->
+                            IpAddress = player_interface:get_http_ip_address(),
+                            {_, Port} = Value;
+                        _ ->
+                            {IpAddress, Port} = Value
+                    end,
                     [{Name, ?l2b(io_lib:format(
                                    "~s:~w",
                                    [inet_parse:ntoa(IpAddress), Port]))}|
@@ -451,12 +462,13 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                     [{Name, ?l2b(inet_parse:ntoa(Value))}|
                      get_config(Rest, AppSchemas, JsonPath)];
                 _ ->
-                    [{Name, Value}|get_config(Rest, AppSchemas, JsonPath)]
+                    [{Name, Value}|
+                     get_config(Rest, AppSchemas, JsonPath)]
             end
     end;
 get_config([{Name, _NotBoolean}|_Rest], _AppSchemas, JsonPath) ->
     throw({invalid_filter, [?b2a(Name)|JsonPath]});
-get_config(_ConfigFilter, _AppSchemas, JsonPath) ->
+get_config(_Filter, _AppSchemas, JsonPath) ->
     throw({invalid_filter, JsonPath}).
 
 get_config_type(AppSchemas, [Name|_Rest] = JsonPath) ->

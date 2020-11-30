@@ -1,5 +1,8 @@
 -module(smtp_serv).
 -export([start_link/6]).
+-export([check_credentials/4]).
+-export([helo/2, ehlo/2, auth/2, mail/2, rcpt/2, data/2, rset/2, vrfy/2, expn/2,
+         help/2, quit/2, any/2]).
 
 %% DEBUG: swaks --from alice@obscrete.net --to alice@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --tls-on-connect --auth-password baz --body "FOO"
 
@@ -43,21 +46,21 @@ start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
            initial_servlet_state =
                #state{nym = Nym,
                       password_digest = PasswordDigest,
-                      check_credentials = fun check_credentials/4,
+                      check_credentials = fun ?MODULE:check_credentials/4,
                       temp_dir = TempDir,
                       simulated = Simulated},
-           servlets = [#servlet{command = helo, handler = fun helo/2},
-                       #servlet{command = ehlo, handler = fun ehlo/2},
-                       #servlet{command = auth, handler = fun auth/2},
-                       #servlet{command = mail, handler = fun mail/2},
-                       #servlet{command = rcpt, handler = fun rcpt/2},
-                       #servlet{command = data, handler = fun data/2},
-                       #servlet{command = rset, handler = fun rset/2},
-                       #servlet{command = vrfy, handler = fun vrfy/2},
-                       #servlet{command = expn, handler = fun expn/2},
-                       #servlet{command = help, handler = fun help/2},
-                       #servlet{command = quit, handler = fun quit/2},
-                       #servlet{command = any, handler = fun any/2}],
+           servlets = [#servlet{command = helo, handler = fun ?MODULE:helo/2},
+                       #servlet{command = ehlo, handler = fun ?MODULE:ehlo/2},
+                       #servlet{command = auth, handler = fun ?MODULE:auth/2},
+                       #servlet{command = mail, handler = fun ?MODULE:mail/2},
+                       #servlet{command = rcpt, handler = fun ?MODULE:rcpt/2},
+                       #servlet{command = data, handler = fun ?MODULE:data/2},
+                       #servlet{command = rset, handler = fun ?MODULE:rset/2},
+                       #servlet{command = vrfy, handler = fun ?MODULE:vrfy/2},
+                       #servlet{command = expn, handler = fun ?MODULE:expn/2},
+                       #servlet{command = help, handler = fun ?MODULE:help/2},
+                       #servlet{command = quit, handler = fun ?MODULE:quit/2},
+                       #servlet{command = any, handler = fun ?MODULE:any/2}],
            patch_initial_servlet_state = PatchInitialServletState,
            temp_dir = TempDir},
     ?daemon_log_tag_fmt(system, "SMTP server starting for ~s on ~s:~w",

@@ -167,22 +167,17 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 
 bootstrap_install_post(JsonTerm) ->
     try
-        [Nym, SmtpPassword, Pop3Password, HttpPassword,
-         SyncAddress, SmtpAddress, Pop3Address, HttpAddress, ObscreteDir, Pin] =
+        [Nym, SmtpPassword, Pop3Password, HttpPassword, SmtpPort, Pop3Port,
+         HttpPort, ObscreteDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"nym">>, fun erlang:is_binary/1},
                {<<"smtp-password">>, fun erlang:is_binary/1},
                {<<"pop3-password">>, fun erlang:is_binary/1},
                {<<"http-password">>, fun erlang:is_binary/1},
-               {<<"sync-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:9900">>},
-               {<<"smtp-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:19900">>},
-               {<<"pop3-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:29900">>},
-               {<<"http-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:8444">>},
+               {<<"smtp-port">>, fun erlang:is_integer/1, 465},
+               {<<"pop3-port">>, fun erlang:is_integer/1, 995},
+               {<<"http-port">>, fun erlang:is_integer/1, 443},
                {<<"obscrete-dir">>, fun erlang:is_binary/1,
                 <<"/tmp/obscrete">>},
                {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
@@ -224,10 +219,9 @@ bootstrap_install_post(JsonTerm) ->
                         base64:encode(
                           player_crypto:digest_password(Pop3Password))},
                        {<<"@@HTTP-PASSWORD@@">>, HttpPassword},
-                       {<<"@@SYNC-ADDRESS@@">>, SyncAddress},
-                       {<<"@@SMTP-ADDRESS@@">>, SmtpAddress},
-                       {<<"@@POP3-ADDRESS@@">>, Pop3Address},
-                       {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
+                       {<<"@@SMTP-PORT@@">>, ?i2b(SmtpPort)},
+                       {<<"@@POP3-PORT@@">>, ?i2b(Pop3Port)},
+                       {<<"@@HTTP-PORT@@">>, ?i2b(HttpPort)},
                        {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
@@ -238,9 +232,22 @@ bootstrap_install_post(JsonTerm) ->
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
+                        MailIpAddress = player_interface:get_mail_ip_address(),
+                        SmtpAddress =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(MailIpAddress), SmtpPort])),
+                        Pop3Address =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(MailIpAddress), Pop3Port])),
+                        HttpIpAddress = player_interface:get_http_ip_address(),
+                        HttpAddress =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(HttpIpAddress), HttpPort])),
                         {ok, {format, [{<<"public-key">>, EncodedPublicKey},
                                        {<<"secret-key">>, EncodedSecretKey},
-                                       {<<"sync-address">>, SyncAddress},
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},
@@ -271,8 +278,7 @@ update_config(Config, [{Pattern, Replacement}|Rest]) ->
 bootstrap_reinstall_post(JsonTerm) ->
     try
         [EncodedPublicKey, EncodedSecretKey, SmtpPassword, Pop3Password,
-         HttpPassword, SyncAddress, SmtpAddress, Pop3Address, HttpAddress,
-         ObscreteDir, Pin] =
+         HttpPassword, SmtpPort, Pop3Port, HttpPort, ObscreteDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"public-key">>, fun erlang:is_binary/1},
@@ -280,14 +286,9 @@ bootstrap_reinstall_post(JsonTerm) ->
                {<<"smtp-password">>, fun erlang:is_binary/1},
                {<<"pop3-password">>, fun erlang:is_binary/1},
                {<<"http-password">>, fun erlang:is_binary/1},
-               {<<"sync-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:9900">>},
-               {<<"smtp-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:19900">>},
-               {<<"pop3-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:29900">>},
-               {<<"http-address">>, fun erlang:is_binary/1,
-                <<"0.0.0.0:8444">>},
+               {<<"smtp-port">>, fun erlang:is_integer/1, 465},
+               {<<"pop3-port">>, fun erlang:is_integer/1, 995},
+               {<<"http-port">>, fun erlang:is_integer/1, 443},
                {<<"obscrete-dir">>, fun erlang:is_binary/1,
                 <<"/tmp/obscrete">>},
                {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
@@ -341,10 +342,9 @@ bootstrap_reinstall_post(JsonTerm) ->
                         base64:encode(
                           player_crypto:digest_password(Pop3Password))},
                        {<<"@@HTTP-PASSWORD@@">>, HttpPassword},
-                       {<<"@@SYNC-ADDRESS@@">>, SyncAddress},
-                       {<<"@@SMTP-ADDRESS@@">>, SmtpAddress},
-                       {<<"@@POP3-ADDRESS@@">>, Pop3Address},
-                       {<<"@@HTTP-ADDRESS@@">>, HttpAddress},
+                       {<<"@@SMTP-PORT@@">>, ?i2b(SmtpPort)},
+                       {<<"@@POP3-PORT@@">>, ?i2b(Pop3Port)},
+                       {<<"@@HTTP-PORT@@">>, ?i2b(HttpPort)},
                        {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
@@ -355,8 +355,21 @@ bootstrap_reinstall_post(JsonTerm) ->
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
+                        MailIpAddress = player_interface:get_mail_ip_address(),
+                        SmtpAddress =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(MailIpAddress), SmtpPort])),
+                        Pop3Address =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(MailIpAddress), Pop3Port])),
+                        HttpIpAddress = player_interface:get_http_ip_address(),
+                        HttpAddress =
+                            ?l2b(io_lib:format(
+                                   "~s:~w",
+                                   [inet_parse:ntoa(HttpIpAddress), HttpPort])),
                         {ok, {format, [{<<"nym">>, Nym},
-                                       {<<"sync-address">>, SyncAddress},
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},

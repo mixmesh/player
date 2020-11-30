@@ -16,8 +16,8 @@
 -define(MAX_SAVED_LOCATIONS, 200).
 
 -record(habitat,
-        {f1 :: number(),
-         f2 :: number(),
+        {f1 :: {number(), number()},
+         f2 :: {number(), number()},
          r :: number()}).
 
 demo() ->
@@ -226,7 +226,7 @@ noise(Step) ->
     B = rand:uniform(),
     {A, fun() -> noise(Step, Step, A, B) end}.
 
-noise(1, Step, _A, B) ->
+noise(1.0, Step, _A, B) ->
     {B, fun() -> noise(Step, Step, B, rand:uniform()) end};
 noise(Travel, Step, _A, B) when Travel > 1 ->
     NextB = rand:uniform(),
