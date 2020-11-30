@@ -26,7 +26,7 @@ demo() ->
     Height = 851,
     Pixmap = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
     epx:pixmap_attach(Pixmap),
-    Filename = filename:join([code:priv_dir(player), "small-area-51.xpm"]),
+    Filename = filename:join([code:priv_dir(player), "small-area-51.png"]),
     {ok, BackgroundImage} = epx_image:load(Filename),
     Background = hd(epx_image:pixmaps(BackgroundImage)),
     Canvas = epx:pixmap_create(Width, Height, ?PIXEL_FORMAT),
