@@ -1,6 +1,6 @@
 -module(player_buffer).
 -export([new/1, new/3, delete/1]).
--export([read/2, write/3]).
+-export([read/2, write/3, write/4]).
 -export([count/2]).
 -export([size/1]).
 -export([select/2]).
@@ -11,6 +11,7 @@
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 -include("../include/player_buffer.hrl").
+-include("player_routing.hrl").
 
 %% buffer layout:
 %%  {Index, ReadCount, MD5, Message}
@@ -19,11 +20,10 @@
 %% 
 
 -record(buffer_handle,
-        { simulated = false,
-	  size :: non_neg_integer(),
-	  buffer :: ets:tid(),
-	  file_buffer :: reference()
-	}).
+        {simulated = false,
+         size :: non_neg_integer(),
+         buffer :: ets:tid(),
+         file_buffer :: reference()}).
 
 -type buffer_handle() :: #buffer_handle{}.
 
@@ -78,80 +78,117 @@ trim(DSize, NewSize, Tab) ->
 
 -spec size(buffer_handle()) -> pos_integer().
 
-size(#buffer_handle{size=Size}) ->
+size(#buffer_handle{size = Size}) ->
     %% ets:info(Buffer, size).
     Size.
 
+%% Exported: read
+
 %% read a message from the buffer
-read(#buffer_handle{simulated=Simulated, buffer=Buffer, size=Size}, Index) when
-      is_integer(Index), Index >= 1, Index =< Size ->
+read(#buffer_handle{simulated = Simulated,
+                    buffer = Buffer,
+                    size = Size}, Index)
+  when is_integer(Index), Index >= 1, Index =< Size ->
     case ets:lookup(Buffer, Index) of
-	[{_,0,_MD5,Message}] -> %% fresh message
+	[{_, 0, _MD5, RoutingHeaderAndMessage}] -> %% fresh message
 	    ets:update_counter(Buffer, Index, 1),  %% mark as read
-	    Message;
-	[{_,_RdC,_MD5,Message}] -> %% if already read we must scramble
-	    if Simulated ->
+	    RoutingHeaderAndMessage;
+	[{_, _RdC, _MD5,
+          <<RoutingHeader:?ROUTING_HEADER_SIZE/binary, Message/binary>> =
+              RoutingHeaderAndMessage}] ->
+            %% if already read we must scramble
+	    if
+                Simulated ->
 		    timer:sleep(100),  %% simulate work
-		    Message;
-	       true ->
+		    RoutingHeaderAndMessage;
+                true ->
 		    %% FIXME dets insert? 
-		    elgamal:urandomize(Message)
+                    ?l2b([RoutingHeader, elgamal:urandomize(Message)])
 	    end;
 	[] ->
 	    Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
-	    if Simulated ->
+	    if
+                Simulated ->
 		    timer:sleep(100),  %% simulate work
-		    Message;
-	       true ->
-		    elgamal:urandomize(Message)
+                    RoutingHeader = player_routing:make_header(blind),
+                    ?l2b([RoutingHeader, Message]);
+                true ->
+                    RoutingHeader = player_routing:make_header(blind),
+                    ?l2b([RoutingHeader, elgamal:urandomize(Message)])
 	    end
     end.
 
+%% Exported: write
+
 %% write a message + messageid to the buffer
 %% we scramble the message before we store it or forward it
-write(#buffer_handle{simulated=Simulated,
-		     buffer=Buffer, file_buffer=FileBuffer,
-		     size=Size}, Index, Message) when
-      is_integer(Index), Index >= 1, Index =< Size,
-      is_binary(Message), byte_size(Message) =:= ?ENCODED_SIZE ->
-    if Simulated ->
+
+write(BufferHandle, Index,
+      <<RoutingHeader:?ROUTING_HEADER_SIZE/binary, Message/binary>>) ->
+    write(BufferHandle, Index, RoutingHeader, Message).
+
+write(#buffer_handle{simulated = Simulated,
+		     buffer = Buffer,
+                     file_buffer = FileBuffer,
+		     size = Size}, Index, RoutingHeader, Message)
+  when is_integer(Index) andalso
+       Index >= 1 andalso
+       Index =< Size andalso
+       is_binary(Message) andalso
+       byte_size(Message) =:= ?ENCODED_SIZE andalso
+       byte_size(RoutingHeader) =:= ?ROUTING_HEADER_SIZE ->
+    if
+        Simulated ->
 	    timer:sleep(100),  %% simulate work
 	    MD5 = erlang:md5(Message),
-	    true = ets:insert(Buffer, {Index, 0, MD5, Message}),
-	    ok = dets:insert(FileBuffer, {Index, 0, MD5, Message});
-       true ->
-	    Message1 = elgamal:urandomize(Message),
-	    true = ets:insert(Buffer, {Index, 0, <<>>, Message1}),
-	    ok = dets:insert(FileBuffer, {Index, 0, <<>>, Message1})
+            RoutingHeaderAndMessage = ?l2b([RoutingHeader, Message]),
+	    true = ets:insert(
+                     Buffer, {Index, 0, MD5, RoutingHeaderAndMessage}),
+	    ok = dets:insert(
+                   FileBuffer, {Index, 0, MD5, RoutingHeaderAndMessage});
+        true ->
+            RoutingHeaderAndMessage =
+                ?l2b([RoutingHeader, elgamal:urandomize(Message)]),
+	    true = ets:insert(
+                     Buffer, {Index, 0, <<>>, RoutingHeaderAndMessage}),
+	    ok = dets:insert(
+                   FileBuffer, {Index, 0, <<>>, RoutingHeaderAndMessage})
     end.
 
+%% Exported: count
+
 %% count number of messages with matching MD5
-count(#buffer_handle{ buffer=Buffer }, MD5) ->
+count(#buffer_handle{buffer = Buffer}, MD5) ->
     ets:foldl(
-      fun({_Index,_RdC,MessageMD5,_Message}, Count) ->
-	      if MD5 =:= MessageMD5 ->
-		      Count+1;
-		 true ->
+      fun({_Index, _RdC, MessageMD5, _Message}, Count) ->
+	      if
+                  MD5 =:= MessageMD5 ->
+		      Count + 1;
+                  true ->
 		      Count
 	      end
       end, 0, Buffer).
 
-%% return a uniformly selected list of F*Size  indices in range 1..Size
-select(Handle=#buffer_handle{ size=Size }, F) when 
-      is_float(F), F >= 0, F =< 1 ->
-    select_(Handle, round(Size*F));
-%% of K if selection number is an integer
-select(Handle=#buffer_handle{ size=Size }, K) when is_integer(K), K > 0, K =< Size ->
-    select_(Handle, K).
+%% Exported: select
 
-select_(#buffer_handle{ size=Size }, N) ->
+%% return a uniformly selected list of F*Size  indices in range 1..Size
+select(#buffer_handle{size = Size} = BufferHandle, F)
+  when is_float(F), F >= 0, F =< 1 ->
+    select_(BufferHandle, round(Size * F));
+%% of K if selection number is an integer
+select(#buffer_handle{size = Size} = BufferHandle, K)
+  when is_integer(K), K > 0, K =< Size ->
+    select_(BufferHandle, K).
+
+select_(#buffer_handle{size = Size}, N) ->
     element(1, lists:split(N, select__(Size, []))).
 
 select__(0, Acc) ->
-    [Index || {_,Index} <- lists:keysort(1,Acc)];
+    [Index || {_, Index} <- lists:keysort(1,Acc)];
 select__(I, Acc) ->
     select__(I-1, [{rand:uniform(), I}|Acc]).
 
+%% Exported: delete
 
 -spec delete(buffer_handle()) -> ok | {error, term()}.
 

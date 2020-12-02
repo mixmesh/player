@@ -26,7 +26,7 @@
 
 -define(STORED_MESSAGE_DIGESTS, 10000).
 
--type message_id() :: pos_integer().
+-type message_id() :: binary().
 -type pick_mode() :: is_nothing |
                      {is_forwarder,
                       {message_not_in_buffer |
@@ -49,13 +49,13 @@
          reply_keys = not_set :: {#pk{}, #sk{}} | not_set,
          location_generator :: function(),
          degrees_to_meters :: function(),
-         x = none :: integer() | none,
-         y = none :: integer() | none,
+         longitude = none :: float() | none,
+         latitude = none :: float() | none,
          neighbour_state = #{} ::
            #{nodis:addr() => nodis:state() },
 	 neighbour_mon = #{} ::
            #{nodis:addr() => undefined | pid(),
-	     reference() => {nodis:addr(),pid()}},
+	     reference() => {nodis:addr(), pid()}},
          is_zombie = false :: boolean(),
          picked_as_source = false :: boolean(),
          pick_mode = is_nothing :: pick_mode(),
@@ -156,7 +156,7 @@ become_target(Pid, MessageMD5) ->
     serv:cast(Pid, {become_target, MessageMD5}).
 
 -spec buffer_read(Pid::pid(), Index::non_neg_integer()) ->
-	  {ok,Message::binary()}.
+	  {ok, Message::binary()}.
 
 buffer_read(Pid, Index) ->
     serv:call(Pid, {buffer_read, Index}).
@@ -218,9 +218,8 @@ start_location_updating(Pid) ->
 init(Parent, Nym, SyncAddress, TempDir, BufferDir, Keys,
      GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
     rand:seed(exsss),
-    {ok, BufferHandle} = player_buffer:new(BufferDir,
-					   ?PLAYER_BUFFER_MAX_SIZE,
-					   Simulated),
+    {ok, BufferHandle} =
+        player_buffer:new(BufferDir, ?PLAYER_BUFFER_MAX_SIZE, Simulated),
     case Simulated of
         true ->
             LocationGenerator = GetLocationGenerator();
@@ -261,8 +260,8 @@ message_handler(
          keys = {_PublicKey, SecretKey} = Keys,
          location_generator = LocationGenerator,
          degrees_to_meters = _DegreesToMeters,
-         x = X,
-         y = Y,
+         longitude = Longitude,
+         latitude = Latitude,
          neighbour_state = NeighbourState,
 	 neighbour_mon = NeighbourMon,
          is_zombie = IsZombie,
@@ -292,11 +291,11 @@ message_handler(
 	    ?dbg_log_fmt("~s has been elected as forwarder (~s)",
 			 [Nym, ?bin2xx(MessageMD5)]),
             NewPickMode = {is_forwarder, {message_not_in_buffer, MessageMD5}},
-	    update_pick_mode(Simulated,Nym,NewPickMode),
+	    update_pick_mode(Simulated, Nym, NewPickMode),
             {noreply, State#state{pick_mode = NewPickMode}};
 
         {cast, become_nothing} ->
-	    update_pick_mode(Simulated,Nym,is_nothing),
+	    update_pick_mode(Simulated, Nym, is_nothing),
 	    {noreply, State#state{pick_mode = is_nothing}};
 
         {cast, {become_source, TargetNym, MessageMD5}} ->
@@ -304,7 +303,7 @@ message_handler(
 	    ?dbg_log_fmt("~s has been elected as new source (~s)",
 			 [Nym, ?bin2xx(MessageMD5)]),
             NewPickMode = {is_source, {TargetNym, MessageMD5}},
-	    update_pick_mode(Simulated,Nym, NewPickMode),
+	    update_pick_mode(Simulated, Nym, NewPickMode),
             {noreply, State#state{pick_mode = NewPickMode}};
 
         {cast, {become_target, MessageMD5}} ->
@@ -318,13 +317,15 @@ message_handler(
 	    Message = player_buffer:read(BufferHandle, Index),
 	    {reply, From, {ok, Message}, State};
 
-        {call, From, {buffer_write, Index, Message}} ->
-	    ok = player_buffer:write(BufferHandle, Index, Message),
-	    if Simulated ->
+        {call, From, {buffer_write, Index, RoutingHeaderAndMessage}} ->
+	    ok = player_buffer:write(
+                   BufferHandle, Index, RoutingHeaderAndMessage),
+	    if
+                Simulated ->
 		    TracedMessageMD5 = traced_message(),
 		    Count = count_traced_messages(BufferHandle),
 		    IsForward = case PickMode of
-				    {is_forwarder,_} -> true;
+				    {is_forwarder, _} -> true;
 				    _ -> false
 				end,
 		    NewPickMode =
@@ -346,10 +347,10 @@ message_handler(
 				    player_buffer:size(BufferHandle),
 				pick_mode = NewPickMode}),
 		    {reply, From, ok, State#state{pick_mode=NewPickMode}};
-	       true ->
+                true ->
 		    {reply, From, ok, State}
 	    end;
-
+        
         {call, From, buffer_size} ->
 	    {reply, From, player_buffer:size(BufferHandle)};
 
@@ -404,13 +405,14 @@ message_handler(
                     case PickMode of
                         {is_target, MessageMD5} ->
                             ?dbg_log_fmt("~w target_received_message (~s)",
-					 [Nym,?bin2xx(MessageMD5)]),
+					 [Nym, ?bin2xx(MessageMD5)]),
                             simulator_serv:target_received_message(
                               Nym, SenderNym);
                         _ ->
                             ok
                     end,
-                    ok = persistent_circular_buffer:add(MessageDigests, DigestedDecryptedData),
+                    ok = persistent_circular_buffer:add(
+                           MessageDigests, DigestedDecryptedData),
                     {noreply, State};
                 true ->
                     ?daemon_log_fmt(
@@ -433,19 +435,22 @@ message_handler(
         {call, From, {send_message, RecipientNym, Payload}} ->
             case read_public_key(PkiServPid, PkiMode, RecipientNym) of
                 {ok, RecipientPublicKey} ->
-                    EncryptedData = elgamal:uencrypt(Payload,
-						     RecipientPublicKey,
-						     SecretKey),
-		    IndexList = player_buffer:select(BufferHandle,?K),
+                    EncryptedData =
+                        elgamal:uencrypt(Payload, RecipientPublicKey,
+                                         SecretKey),
+		    IndexList = player_buffer:select(BufferHandle, ?K),
 		    MessageMD5 = erlang:md5(EncryptedData),
-		    NewPickMode = {is_source,{RecipientNym,MessageMD5}},
-                    ok = write_messages(BufferHandle,EncryptedData,IndexList),
+		    NewPickMode = {is_source, {RecipientNym, MessageMD5}},
+                    RoutingHeader =
+                        player_routing:make_header(
+                          location, Longitude, Latitude),
+                    ok = write_messages(BufferHandle, RoutingHeader,
+                                        EncryptedData, IndexList),
 		    Count = player_buffer:count(BufferHandle, MessageMD5),
 		    if Simulated -> %% keep track on this message for simulation
 			    ets:insert(player_message, {MessageMD5, true}),
-                            ok = simulator_serv:elect_target(MessageMD5,
-							     Nym,
-							     RecipientNym),
+                            ok = simulator_serv:elect_target(
+                                   MessageMD5, Nym, RecipientNym),
                             true = player_db:update(
                                      #db_player{
                                         nym = Nym,
@@ -517,23 +522,23 @@ message_handler(
 	    {noreply, State#state{neighbour_state=NeighbourState1}};
 
 	%% player sync messages
-	{sync, SyncPid, NAddr, {up,ConState}} -> %% from sync_serv
-            ?dbg_log_tag(sync, {up,NAddr,ConState}),
+	{sync, SyncPid, NAddr, {up, ConState}} -> %% from sync_serv
+            ?dbg_log_tag(sync, {up, NAddr, ConState}),
 	    Mon = erlang:monitor(process, SyncPid),
-	    NeighbourState1 = NeighbourState#{ NAddr => {up,ConState} },
+	    NeighbourState1 = NeighbourState#{NAddr => {up, ConState}},
 	    update_neighbours(Simulated, Nym, NeighbourState1),
-	    NeighbourMon1 = NeighbourMon#{ Mon => {NAddr,SyncPid},
-					   NAddr => SyncPid },
-	    {noreply, State#state{neighbour_state=NeighbourState1,
+	    NeighbourMon1 = NeighbourMon#{Mon => {NAddr, SyncPid},
+                                          NAddr => SyncPid},
+	    {noreply, State#state{neighbour_state = NeighbourState1,
 				  neighbour_mon = NeighbourMon1}};
 
-	{sync, _SyncPid, NAddr, {error,N,_Error}} ->
-	    ?dbg_log_tag(sync, {error,N,NAddr,_Error}),
+	{sync, _SyncPid, NAddr, {error, N, _Error}} ->
+	    ?dbg_log_tag(sync, {error, N, NAddr, _Error}),
 	    %% keep statistics on N messages
 	    {noreply, State};
 
-	{sync,_SyncPid,NAddr,{done,N}} -> %% from sync_serv (transmission done)
-	    ?dbg_log_tag(sync, {done,N,NAddr}),
+	{sync, _SyncPid, NAddr, {done, N}} -> %% from sync_serv (transmission done)
+	    ?dbg_log_tag(sync, {done, N, NAddr}),
 	    %% keep statistics on N messages
 	    {noreply, State};
 
@@ -556,12 +561,12 @@ message_handler(
 			io:format("DOWN: sync? process ~w not found\n", 
 				  [SyncPid]),
 			NeighbourMon;
-		    {NAddr,SyncPid} ->
+		    {NAddr, SyncPid} ->
 			NMon1 = maps:remove(Mon, NeighbourMon),
 			NMon2 = maps:remove(NAddr, NMon1),
 			NMon2
 		end,
-	    {noreply, State#state{neighbour_mon=NeighbourMon1}};
+	    {noreply, State#state{neighbour_mon = NeighbourMon1}};
 
         %%
         %% Below follows handling of internally generated messages
@@ -580,29 +585,32 @@ message_handler(
                             true
                     end,
                     {noreply, State#state{is_zombie = true}};
-                {{NextTimestamp, NextX, NextY}, NewLocationGenerator} ->
+                {{NextTimestamp, NextLongitude, NextLatitude},
+                 NewLocationGenerator} ->
                     if
-                        X == none ->
-                            ?dbg_log_tag(location,
-					 {initial_location, NextX, NextY}),
+                        Longitude == none ->
+                            ?dbg_log_tag(
+                               location,
+                               {initial_location, NextLongitude, NextLatitude}),
                             case Simulated of
                                 true ->
-                                    true = player_db:add(Nym, NextX, NextY);
+                                    true = player_db:add(
+                                             Nym, NextLongitude, NextLatitude);
                                 false ->
                                     true
                             end;
                         true ->
-                            ?dbg_log_tag(location,
-					 {location_updated, Nym,
-					  X,Y,
-					  NextX, NextY}),
+                            ?dbg_log_tag(
+                               location,
+                               {location_updated, Nym, Longitude, Latitude,
+                                NextLongitude, NextLatitude}),
                             case Simulated of
                                 true ->
                                     true = player_db:update(
                                              #db_player{
                                                 nym = Nym,
-                                                x = NextX,
-                                                y = NextY,
+                                                x = NextLongitude,
+                                                y = NextLatitude,
                                                 buffer_size =
                                                     player_buffer:size(
                                                       BufferHandle),
@@ -619,8 +627,8 @@ message_handler(
                                       {location_updated, NextTimestamp}),
                     {noreply,
                      State#state{location_generator = NewLocationGenerator,
-                                 x = NextX,
-                                 y = NextY,
+                                 longitude = NextLongitude,
+                                 latitude = NextLatitude,
                                  meters_moved = MetersMoved}}
             end;
         {system, From, Request} ->
@@ -632,11 +640,11 @@ message_handler(
 
 %% write multiple copies of Message, player_buffer:write will scramble
 %% when needed.
-write_messages(_BufferHandle, _Message, []) ->
+write_messages(_BufferHandle, _RoutingHeader, _Message, []) ->
     ok;
-write_messages(BufferHandle, Message, [Index|IndexList]) ->
-    ok = player_buffer:write(BufferHandle, Index, Message),
-    write_messages(BufferHandle, Message, IndexList).
+write_messages(BufferHandle, RoutingHeader, Message, [Index|IndexList]) ->
+    ok = player_buffer:write(BufferHandle, Index, RoutingHeader, Message),
+    write_messages(BufferHandle, RoutingHeader, Message, IndexList).
 
 traced_message() ->
     case ets:first(player_message) of
@@ -654,22 +662,20 @@ count_traced_messages(BufferHandle) ->
 
 update_pick_mode(true, Nym, Mode) ->
     true = player_db:update(#db_player{nym = Nym, pick_mode = Mode});
-update_pick_mode(_Simulated,_Nym,_Mode) ->
+update_pick_mode(_Simulated, _Nym, _Mode) ->
     true.
-
 
 update_neighbours(true, Nym, Ns) ->
     true = player_db:update(
-	     #db_player{ nym = Nym,
-			 neighbours = get_neighbours(Ns)
-		       });
+	     #db_player{nym = Nym,
+			neighbours = get_neighbours(Ns)});
 update_neighbours(false, _Nym, _Ns) ->
     true.
 
 
--spec get_neighbours(#{ nodis:addr() => nodis:state() |
-			{up, connect|accept|false} }) ->
-	  [{string(),nodis:state(),connect|accept|false}].
+-spec get_neighbours(#{nodis:addr() => nodis:state() |
+                       {up, connect|accept|false}}) ->
+	  [{string(), nodis:state(), connect | accept | false}].
 
 %% FIXME: keep nodis-address -> nym in a global state fro speed
 get_neighbours(Ns) when is_map(Ns) ->
@@ -678,23 +684,24 @@ get_neighbours(Ns) when is_map(Ns) ->
 get_neighbours_([N|Ns], AddrList, States) ->
     case N of
 	{Addr,{up,ConState}} ->
-	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,up,ConState}|States]);
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr, up, ConState}|States]);
 	{Addr,up} -> %% FIXME may be removed?
-	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,up,false}|States]);
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr, up, false}|States]);
 	{Addr,down} ->
-	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,down,false}|States]);
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr, down, false}|States]);
 	{Addr,pending} ->
-	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,pending,false}|States]);
+	    get_neighbours_(Ns, [Addr|AddrList],
+                            [{Addr, pending, false}|States]);
 	{Addr,wait} ->
-	    get_neighbours_(Ns, [Addr|AddrList], [{Addr,wait,false}|States])
+	    get_neighbours_(Ns, [Addr|AddrList], [{Addr, wait, false}|States])
     end;
 get_neighbours_([], AddrList, States) ->
     Nyms = simulator_serv:get_player_nyms(AddrList),
     res_neighbours(Nyms, AddrList, States, []).
 
-res_neighbours([Nym|Nyms],[Addr|AddrList],
-	       [{Addr,State,ConState}|States],Acc) ->
-    res_neighbours(Nyms,AddrList,States,[{Nym,State,ConState}|Acc]);
+res_neighbours([Nym|Nyms], [Addr|AddrList],
+	       [{Addr, State, ConState}|States],Acc) ->
+    res_neighbours(Nyms, AddrList, States, [{Nym, State, ConState}|Acc]);
 res_neighbours([], [], [], Acc) ->
     Acc.
 

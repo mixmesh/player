@@ -10,11 +10,11 @@ start() ->
     ok = file:delete(Filename),
     true =
         is_substring(
-          os:cmd("mpop --host=127.0.0.1 --port=29900 --tls=on --tls-starttls=off --tls-certcheck=off --serverinfo"),
+          os:cmd("mpop --host=127.0.0.1 --port=995 --tls=on --tls-starttls=off --tls-certcheck=off --serverinfo"),
           "POP3 server ready"),
     os:cmd("rm -fr $HOME/.mpop_uidls alice"),
     true =
-        is_substring(os:cmd("mpop --host=127.0.0.1 --port=29900 --deliver=mbox,alice --keep=on --auth=user --user=alice --tls=on --tls-starttls=off --tls-certcheck=off --passwordeval='echo \"baz\"'"),
+        is_substring(os:cmd("mpop --host=127.0.0.1 --port=995 --deliver=mbox,alice --keep=on --auth=user --user=alice --tls=on --tls-starttls=off --tls-certcheck=off --passwordeval='echo \"baz\"'"),
                      "retrieving message 5").
 
 write_to_maildrop(_Filename, 0) ->
