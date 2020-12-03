@@ -111,7 +111,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
             Nym = config:lookup([player, nym]),
             [PublicKey, SecretKey] =
                 config:lookup_children(['public-key', 'secret-key'],
-                                       config:lookup([player, spiridon])),
+                                       config:lookup([player, routing])),
             {ok, DecryptedSecretKey} = shared_decrypt_secret_key(SecretKey),
             {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
             SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
@@ -429,7 +429,7 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
             case get_config_type(AppSchemas, RealJsonPath) of
                 base64 ->
                     case RealJsonPath of
-                        [player, spiridon, 'secret-key'] ->
+                        [player, routing, 'secret-key'] ->
                             {ok, DecryptedSecretKey} =
                                 shared_decrypt_secret_key(Value),
                             [{Name, base64:encode(DecryptedSecretKey)}|

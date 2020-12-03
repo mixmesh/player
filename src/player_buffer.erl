@@ -3,7 +3,7 @@
 -export([read/2, write/3, write/4]).
 -export([count/2]).
 -export([size/1]).
--export([select/2]).
+-export([select/2, select_suitable/4]).
 
 -export_type([buffer_handle/0]).
 
@@ -110,10 +110,10 @@ read(#buffer_handle{simulated = Simulated,
 	    if
                 Simulated ->
 		    timer:sleep(100),  %% simulate work
-                    RoutingHeader = player_routing:make_header(blind),
+                    RoutingHeader = player_routing:info_to_header(blind),
                     ?l2b([RoutingHeader, Message]);
                 true ->
-                    RoutingHeader = player_routing:make_header(blind),
+                    RoutingHeader = player_routing:info_to_header(blind),
                     ?l2b([RoutingHeader, elgamal:urandomize(Message)])
 	    end
     end.
@@ -171,22 +171,86 @@ count(#buffer_handle{buffer = Buffer}, MD5) ->
 
 %% Exported: select
 
-%% return a uniformly selected list of F*Size  indices in range 1..Size
-select(#buffer_handle{size = Size} = BufferHandle, F)
-  when is_float(F), F >= 0, F =< 1 ->
-    select_(BufferHandle, round(Size * F));
-%% of K if selection number is an integer
+%% return a uniformly selected list of K indices in range 1..Size
 select(#buffer_handle{size = Size} = BufferHandle, K)
   when is_integer(K), K > 0, K =< Size ->
-    select_(BufferHandle, K).
+    select_random_indices(BufferHandle, K).
 
-select_(#buffer_handle{size = Size}, N) ->
-    element(1, lists:split(N, select__(Size, []))).
+select_random_indices(#buffer_handle{size = Size}, N) ->
+    {RandomIndices, _} = lists:split(N, randomize_messages(Size, [])),
+    RandomIndices.
 
-select__(0, Acc) ->
-    [Index || {_, Index} <- lists:keysort(1,Acc)];
-select__(I, Acc) ->
-    select__(I-1, [{rand:uniform(), I}|Acc]).
+randomize_messages(0, Acc) ->
+    [Index || {_, Index} <- lists:keysort(1, Acc)];
+randomize_messages(Index, Acc) ->
+    randomize_messages(Index - 1, [{rand:uniform(), Index}|Acc]).
+
+%% Exported: select_suitable
+
+%% return a routed list of F*Size indices in range 1..Size
+select_suitable(
+  #buffer_handle{size = Size} = BufferHandle, RoutingInfo,
+  NeighbourRoutingInfo, F) when is_float(F), F >= 0, F =< 1 ->
+    select_suitable_indices(
+      BufferHandle, RoutingInfo, NeighbourRoutingInfo, F, round(Size * F)).
+
+select_suitable_indices(
+  #buffer_handle{size = Size, buffer = Buffer}, RoutingInfo,
+  NeighbourRoutingInfo, F, N) ->
+    {SuitableWeightIndices, UnsuitableIndices} =
+        ets:foldl(
+          fun({Index, _RdC, _MessageMD5,
+               <<MessageRoutingHeader:?ROUTING_HEADER_SIZE/binary,
+                 _Message/binary>>},
+              {SuitableWeightIndices, UnsuitableIndices}) ->
+                  MessageRoutingInfo =
+                      player_routing:header_to_info(MessageRoutingHeader),
+                  case player_routing:is_neighbour_more_suitable(
+                         NeighbourRoutingInfo, RoutingInfo,
+                         MessageRoutingInfo) of
+                      blind ->
+                          {SuitableWeightIndices, UnsuitableIndices};
+                      Weight when Weight < 1 ->
+                          {[{Weight, Index}|SuitableWeightIndices],
+                           UnsuitableIndices};
+                      Weight ->
+                          {SuitableWeightIndices, [Index|UnsuitableIndices]}
+                  end
+          end, {[], []}, Buffer),
+    {SuitableIndices, SkipIndices} =
+        if
+            length(SuitableWeightIndices) == 0 ->
+                {[], UnsuitableIndices};
+            true ->
+                {UsedWeightIndices, UnusedWeightIndices} =
+                    lists:split(trunc(0.5 * length(SuitableWeightIndices) + 1),
+                                lists:keysort(1, SuitableWeightIndices)),
+                {[Index || {_, Index} <- UsedWeightIndices],
+                 [Index || {_, Index} <- UnusedWeightIndices] ++
+                     UnsuitableIndices}
+        end,
+    if
+        length(SuitableIndices) >= N ->
+            {SelectedIndices, _} = lists:split(N, SuitableIndices),
+            SelectedIndices;
+        true ->
+            {RandomIndices, _} =
+                lists:split(
+                  N - length(SuitableIndices),
+                  randomize_selected_messages(Size, SkipIndices, [])),
+            SuitableIndices ++ RandomIndices
+    end.
+
+randomize_selected_messages(0, _SkipIndices, Acc) ->
+    [Index || {_, Index} <- lists:keysort(1, Acc)];
+randomize_selected_messages(Index, SkipIndices, Acc) ->
+    case lists:member(Index, SkipIndices) of
+        true ->
+            randomize_selected_messages(Index - 1, SkipIndices, Acc);
+        false ->
+            randomize_selected_messages(
+              Index - 1, SkipIndices, [{rand:uniform(), Index}|Acc])
+    end.
 
 %% Exported: delete
 

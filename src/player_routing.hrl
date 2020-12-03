@@ -12,4 +12,19 @@
 -define(ROUTING_HEADER_AND_MESSAGE_SIZE,
         (?ROUTING_HEADER_SIZE + ?ENCODED_SIZE)).
 
+-record(location_routing,
+        {x :: float(),
+         y :: float()}).
+
+-record(habitat_routing,
+        {x1 :: float(),
+         y1 :: float(),
+         x2 :: float(),
+         y2 :: float(),
+         r :: float()}).
+
+-record(routing_info,
+        {type :: player_routing:routing_type(),
+         data = none :: none | #location_routing{} | #habitat_routing{}}).
+
 -endif.

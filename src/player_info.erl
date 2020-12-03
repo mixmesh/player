@@ -14,7 +14,8 @@
 -define(TAB, player_info).
 
 new() ->
-    T = ets:new(?TAB, [public, named_table]), %% nym => #{key=>value}
+    %% nym => #{key=>value}
+    T = ets:new(?TAB, [public, named_table, {write_concurrency, true}]),
     io:format("player_info table created ~p\n", [ets:info(player_info)]),
     T.
 

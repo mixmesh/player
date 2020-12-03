@@ -35,12 +35,12 @@ init(normal) ->
     [ObscreteDir, PinSalt] =
         config:lookup_children(['obscrete-dir', 'pin-salt'],
                                config:lookup([system])),
-    [Nym, SyncAddress, Spiridon, SmtpServer, Pop3Server, HttpServer] =
+    [Nym, SyncAddress, Routing, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
-          [nym, 'sync-address', spiridon, 'smtp-server', 'pop3-server',
+          [nym, 'sync-address', routing, 'smtp-server', 'pop3-server',
            'http-server'], config:lookup([player])),
-    [F, EncodedPublicKey, EncryptedSecretKey] =
-        config:lookup_children([f, 'public-key', 'secret-key'], Spiridon),
+    [RoutingType, F, EncodedPublicKey, EncryptedSecretKey] =
+        config:lookup_children([type, f, 'public-key', 'secret-key'], Routing),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
     PinFilename = filename:join([ObscreteDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
@@ -86,12 +86,12 @@ init(normal) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, Keys, not_set,
-                     not_set, PkiMode, false]}},
+                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
+                     not_set, not_set, PkiMode, _Simulated = false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Nym, SyncAddress, F, Keys, _Simulated=false]}},
+                    [Nym, SyncAddress, F, Keys, _Simulated = false]}},
     MaildropServSpec =
         #{id => maildrop_serv,
           start => {maildrop_serv, start_link, [SpoolerDir, false]}},
@@ -99,7 +99,7 @@ init(normal) ->
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
                     [Nym, SmtpPasswordDigest, TempDir, CertFilename,
-                     SmtpAddress, false]}},
+                     SmtpAddress, _Simulated = false]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
@@ -123,6 +123,7 @@ init(#simulated_player_serv_config{
         players_dir = PlayersDir,
         nym = Nym,
         sync_address = SyncAddress,
+        routing_type = RoutingType,
         keys = Keys,
         f = F,
         get_location_generator = GetLocationGenerator,
@@ -143,7 +144,7 @@ init(#simulated_player_serv_config{
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, Keys,
+                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
                      GetLocationGenerator, DegreesToMeters, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,

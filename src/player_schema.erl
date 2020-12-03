@@ -21,8 +21,22 @@ get() ->
            name = ipaddress_port,
            typical = {{242,45,0,34}, 10000},
            reloadable = false}},
-       {spiridon,
-        [{f,
+       {routing,
+        [{type,
+          #json_type{
+             name = atom,
+             info = "blind or location",
+             typical = blind,
+             convert =
+                 fun(blind) -> blind;
+                    (location) -> location;
+                    (_) ->
+                         throw(
+                           {failed,
+                            "Must be one of blind or location"})
+                 end,
+             reloadable = false}},
+         {f,
           #json_type{
              name = {float, 0.0, 1.0},
              typical = 0.2,

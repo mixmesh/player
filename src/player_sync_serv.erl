@@ -1,5 +1,5 @@
 -module(player_sync_serv).
--export([connect/4]).
+-export([connect/5]).
 -export([start_link/5, stop/1]).
 -export([message_handler/1]).
 
@@ -24,13 +24,14 @@
 
 %% Exported: connect
 
-connect(PlayerServPid, NodisServPid, NAddr, Options) ->
+connect(PlayerServPid, RoutingInfo, NodisServPid, NAddr, Options) ->
     Pid = proc_lib:spawn(
-            fun() -> connect_now(PlayerServPid, NodisServPid, NAddr,
-				 Options) end),
+            fun() ->
+                    connect_now(PlayerServPid, RoutingInfo, NodisServPid, NAddr,
+                                Options) end),
     {ok, Pid}.
 
-connect_now(PlayerServPid, NodisServPid,
+connect_now(PlayerServPid, RoutingInfo, NodisServPid,
 	    NAddr, #player_sync_serv_options{
 		      sync_address = SyncAddress,
 		      connect_timeout = ConnectTimeout} = Options) ->
@@ -43,24 +44,45 @@ connect_now(PlayerServPid, NodisServPid,
 				  {active, false},
 				  {nodelay, true},
 				  {port, SrcPort + 1},
-				  {sndbuf, ?SND_BUFFER_SIZE},
-				  {recbuf, ?REC_BUFFER_SIZE},
-				  {send_timeout, ?SEND_TIMEOUT},
 				  binary],
 				 ConnectTimeout) of
 		{ok, Socket} ->
-		    PlayerServPid ! {sync, self(), NAddr, {up,connect}},
-		    sync_messages(PlayerServPid, NodisServPid, NAddr, 
-				  Socket, Options);
+		    PlayerServPid ! {sync, self(), NAddr, {up, connect}},
+                    case connect_handshake(RoutingInfo, Socket) of
+                        {ok, NeighbourRoutingInfo} ->
+                            ok = inet:setopts(Socket, 
+                                              [{sndbuf, ?SND_BUFFER_SIZE},
+                                               {recbuf, ?REC_BUFFER_SIZE},
+                                               {send_timeout, ?SEND_TIMEOUT}]),
+                            sync_messages(PlayerServPid, NeighbourRoutingInfo,
+                                          NodisServPid, NAddr, Socket, Options);
+                        {error, closed} ->
+                            ok;
+                        {error, Reason} ->
+                            ?error_log({connect_handshake, Reason})
+                    end;
 		{error, eaddrinuse} ->
 		    io:format("gen_tcp:connect eaddrinuse\n"),
 		    ok;
 		{error, Reason} ->
-		    io:format("gen_tcp:connect error ~p\n", [Reason]),
-		    ?error_log({connect, Reason})
+		    ?error_log({gen_tcp, connect, Reason})
 	    end;
 	false -> %% Probably connected already
 	    ?dbg_log_tag(sync, {nodis_connect_reject})
+    end.
+
+connect_handshake(RoutingInfo, Socket) ->
+    RoutingHeader = player_routing:info_to_header(RoutingInfo),
+    case gen_tcp:send(Socket, RoutingHeader) of
+	ok ->
+            case gen_tcp:recv(Socket, ?ROUTING_HEADER_SIZE) of
+                {ok, NeighbourRoutingHeader} ->
+                    {ok, player_routing:header_to_info(NeighbourRoutingHeader)};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %% Exported: start_link
@@ -97,9 +119,6 @@ init(Parent, Nym, Port,
 			  {ifaddr, IpAddress},
 			  {active, false},
 			  {nodelay, true},
-			  {sndbuf, ?SND_BUFFER_SIZE},
-			  {recbuf, ?REC_BUFFER_SIZE},
-			  {send_timeout, ?SEND_TIMEOUT},
 			  binary],
     {ok, ListenSocket} =
         gen_tcp:listen(Port, LOptions),
@@ -180,7 +199,18 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
 	true ->
 	    Owner ! accepted,
 	    PlayerServPid ! {sync, self(), NAddr, {up, accept}},
-	    sync_messages(PlayerServPid, NodisServPid, NAddr, Socket, Options);
+            RoutingInfo = player_serv:get_routing_info(PlayerServPid),
+            case accept_handshake(RoutingInfo, Socket) of
+                {ok, NeighbourRoutingInfo} ->
+                    ok = inet:setopts(Socket, 
+                                      [{sndbuf, ?SND_BUFFER_SIZE},
+                                       {recbuf, ?REC_BUFFER_SIZE},
+                                       {send_timeout, ?SEND_TIMEOUT}]),
+                    sync_messages(PlayerServPid, NeighbourRoutingInfo,
+                                  NodisServPid, NAddr, Socket, Options);
+                {error, Reason} ->
+                    ?error_log({accept_handshake, Reason})
+            end;
 	false -> %% Maybe already connected or not up
 	    ?dbg_log_tag(sync, {nodis_accept_reject}),
 	    %% Try to close nicely
@@ -189,10 +219,27 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
 	    acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket)
     end.
 
-sync_messages(PlayerServPid, _NodisServPid, NAddr, Socket, Options) ->
+accept_handshake(RoutingInfo, Socket) ->
+    case gen_tcp:recv(Socket, ?ROUTING_HEADER_SIZE) of
+        {ok, NeighbourRoutingHeader} ->
+            RoutingHeader = player_routing:info_to_header(RoutingInfo),
+            case gen_tcp:send(Socket, RoutingHeader) of
+                ok ->
+                    {ok, player_routing:header_to_info(NeighbourRoutingHeader)};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+sync_messages(PlayerServPid, NeighbourRoutingInfo, _NodisServPid, NAddr, Socket,
+              Options) ->
     F = Options#player_sync_serv_options.f,
-    IndexList = player_serv:buffer_select(PlayerServPid, F),
-    case sync_messages_(PlayerServPid, NAddr, Socket, IndexList, 0, Options) of
+    IndexList = player_serv:buffer_select_suitable(
+                  PlayerServPid, NeighbourRoutingInfo, F),
+    case sync_messages_(PlayerServPid, NeighbourRoutingInfo, NAddr, Socket,
+                        IndexList, 0, Options) of
 	{ok, _N} ->
 	    %% ?dbg_log_tag(sync, {ok, N}),
 	    ok;
@@ -201,7 +248,8 @@ sync_messages(PlayerServPid, _NodisServPid, NAddr, Socket, Options) ->
 	    ok
     end.
 
-sync_messages_(PlayerServPid, NAddr, Socket, [], N, Options) ->
+sync_messages_(PlayerServPid, _NeighbourRoutingInfo, NAddr, Socket, [], N,
+               Options) ->
     %% We have no more messages to send so we shutdown our sending
     %% side and read messages until we get a close from the other side
     %% FIXME: we need total timer here and a max count
@@ -213,7 +261,8 @@ sync_messages_(PlayerServPid, NAddr, Socket, [], N, Options) ->
 	    ?error_log({shutdown, sync_messages, Reason}),
 	    {error, N, Reason}
     end;
-sync_messages_(PlayerServPid, NAddr, Socket, [Index|IndexList], N, Options) ->
+sync_messages_(PlayerServPid, NeighbourRoutingInfo, NAddr, Socket,
+               [Index|IndexList], N, Options) ->
     {ok, OutgoingRoutingHeaderAndMessage} =
         player_serv:buffer_read(PlayerServPid, Index),
     case gen_tcp:send(Socket, OutgoingRoutingHeaderAndMessage) of
@@ -229,16 +278,16 @@ sync_messages_(PlayerServPid, NAddr, Socket, [Index|IndexList], N, Options) ->
 			    ok = player_serv:buffer_write(
                                    PlayerServPid, Index,
                                    IncomingRoutingHeaderAndMessage),
-			    sync_messages_(
-                              PlayerServPid, NAddr, Socket, IndexList, N + 1,
-                              Options);
+			    sync_messages_(PlayerServPid, NeighbourRoutingInfo,
+                                           NAddr, Socket, IndexList, N + 1,
+                                           Options);
 			{SenderNym, Signature, DecryptedData} ->
 			    ok = player_serv:got_message(
                                    PlayerServPid, IncomingMessage, SenderNym,
                                    Signature, DecryptedData),
-			    sync_messages_(
-                              PlayerServPid, NAddr, Socket, IndexList, N + 1,
-                              Options)
+			    sync_messages_(PlayerServPid, NeighbourRoutingInfo,
+                                           NAddr, Socket, IndexList, N + 1,
+                                           Options)
 		    end;
 		{error, closed} -> %% Other side closed its writing side
 		    PlayerServPid ! {sync, self(), NAddr, {done, N}},
@@ -260,23 +309,23 @@ sync_messages_(PlayerServPid, NAddr, Socket, [Index|IndexList], N, Options) ->
 	    {error, N, Reason}
     end.
 
-sync_send_(PlayerServPid, NAddr, Socket, [], N, _Options) ->
-    %% Reading side is close, close when we are done sending
-    PlayerServPid ! {sync, self(), NAddr, {done, N}},
-    gen_tcp:close(Socket),
-    {ok,N};
-sync_send_(PlayerServPid, NAddr, Socket, [Index|IndexList], N, Options) ->
-    {ok, RoutingHeaderAndMessage} =
-        player_serv:buffer_read(PlayerServPid, Index),
-    case gen_tcp:send(Socket, RoutingHeaderAndMessage) of
-	ok ->
-	    sync_send_(PlayerServPid, NAddr, Socket, IndexList, N + 1, Options);
-	{error, Reason} ->
-	    ?error_log({send, sync_messages, Reason}),
-	    PlayerServPid ! {sync, self(), NAddr, {error, N, Reason}},
-	    gen_tcp:close(Socket),
-	    {error, N, Reason}
-    end.
+%% sync_send_(PlayerServPid, NAddr, Socket, [], N, _Options) ->
+%%     %% Reading side is close, close when we are done sending
+%%     PlayerServPid ! {sync, self(), NAddr, {done, N}},
+%%     gen_tcp:close(Socket),
+%%     {ok,N};
+%% sync_send_(PlayerServPid, NAddr, Socket, [Index|IndexList], N, Options) ->
+%%     {ok, RoutingHeaderAndMessage} =
+%%         player_serv:buffer_read(PlayerServPid, Index),
+%%     case gen_tcp:send(Socket, RoutingHeaderAndMessage) of
+%% 	ok ->
+%% 	    sync_send_(PlayerServPid, NAddr, Socket, IndexList, N + 1, Options);
+%% 	{error, Reason} ->
+%% 	    ?error_log({send, sync_messages, Reason}),
+%% 	    PlayerServPid ! {sync, self(), NAddr, {error, N, Reason}},
+%% 	    gen_tcp:close(Socket),
+%% 	    {error, N, Reason}
+%%     end.
 
 %% When we have written our messages we wait for other side to terminate
 %% since we in general want other side to close properly send a FIN and

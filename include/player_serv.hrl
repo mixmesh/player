@@ -28,6 +28,7 @@
         {players_dir :: binary(),
          nym :: binary(),
          sync_address :: {inet:ip_address(), inet:port_number()},
+         routing_type :: player_routing:routing_type(),
          keys :: {#pk{}, #sk{}},
          f :: float(),
          get_location_generator :: function(),

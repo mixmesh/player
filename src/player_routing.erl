@@ -1,31 +1,54 @@
 -module(player_routing).
--export([make_header/1, make_header/3]).
+-export([update_info/3, info_to_header/1, header_to_info/1,
+         is_neighbour_more_suitable/3]).
+-export_type([routing_type/0]).
 
+-include_lib("apptools/include/log.hrl").
 -include("player_routing.hrl").
 
 -define(PI, 3.141592).
 -define(RADIANS_PER_DEGREE, (?PI / 180)).
 -define(NOT_USED, 0).
 
-%% Exported: make_header
+-type routing_type() :: blind | location | habitat.
 
-make_header(blind) ->
-    <<?ROUTING_BLIND:8/unsigned-integer,
-      ?NOT_USED/float,
-      ?NOT_USED/float,
-      ?NOT_USED/float,
-      ?NOT_USED/float,
-      ?NOT_USED/float>>.
+%% Exported: update_info
 
-make_header(location, none, none) ->
+update_info(#routing_info{type = blind} = RoutingInfo, _Longitude, _Latitude) ->
+    RoutingInfo;
+update_info(#routing_info{type = location} = RoutingInfo, none, none) ->
+    RoutingInfo;
+update_info(#routing_info{type = location} = RoutingInfo, Longitude,
+            Latitude) ->
+    {X, Y, _Z} = geodetic_to_ecef_coordinates(Latitude, Longitude, 0),
+    RoutingInfo#routing_info{data = #location_routing{x = X, y = Y}}.
+
+%% Exported: info_header
+
+info_to_header(blind) ->
     <<?ROUTING_BLIND:8/unsigned-integer,
       ?NOT_USED/float,
       ?NOT_USED/float,
       ?NOT_USED/float,
       ?NOT_USED/float,
       ?NOT_USED/float>>;
-make_header(location, Longitude, Latitude) ->
-    {X, Y, _Z} = geodetic_to_ecef_coordinates(Latitude, Longitude, 0),
+info_to_header(#routing_info{type = blind}) ->
+    <<?ROUTING_BLIND:8/unsigned-integer,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float>>;
+info_to_header(#routing_info{type = location, data = none}) ->
+    <<?ROUTING_BLIND:8/unsigned-integer,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float,
+      ?NOT_USED/float>>;
+info_to_header(#routing_info{
+                  type = location,
+                  data = #location_routing{x = X, y = Y}}) ->
     <<?ROUTING_LOCATION:8/unsigned-integer,
       X/float,
       Y/float,
@@ -54,3 +77,48 @@ geodetic_to_ecef_coordinates(Latitude, Longitude, H) ->
     Y = (N + H) * CLatitude * SLongitude, 
     Z  = (B2 / A2 * N + H) * SLatitude,
     {X, Y, Z}.
+
+%% Exported: header_to_info
+
+header_to_info(<<?ROUTING_BLIND:8/unsigned-integer,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float>>) ->
+    #routing_info{type = blind};
+header_to_info(<<?ROUTING_LOCATION:8/unsigned-integer,
+                 X/float,
+                 Y/float,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float,
+                 ?NOT_USED/float>>) ->
+    #routing_info{type = location,
+                  data = #location_routing{x = X, y = Y}}.
+
+%% Exported: is_neighbour_more_suitable
+
+is_neighbour_more_suitable(#routing_info{type = blind}, _RoutingInfo,
+                           _MessageRoutingInfo) ->
+    blind;
+is_neighbour_more_suitable(_NeighbourRoutingInfo, #routing_info{type = blind},
+                           _MessageRoutingInfo) ->
+    blind;
+is_neighbour_more_suitable(_NeighbourRoutingInfo, _RoutingInfo,
+                           #routing_info{type = blind}) ->
+    blind;
+is_neighbour_more_suitable(#routing_info{type = location, data = none},
+                           _RoutingInfo, _MessageRoutingInfo) ->
+    blind;
+is_neighbour_more_suitable(_NeighbourRouting,
+                           #routing_info{type = location, data = none},
+                           _MessageRoutingInfo) ->
+    blind;
+is_neighbour_more_suitable(NeighbourRoutingInfo, RoutingInfo,
+                           MessageRoutingInfo) ->
+    distance(NeighbourRoutingInfo, MessageRoutingInfo) /
+        distance(RoutingInfo, MessageRoutingInfo).
+
+distance(#routing_info{data = #location_routing{x = X1, y = Y1}},
+         #routing_info{data = #location_routing{x = X2, y = Y2}}) ->
+    math:sqrt(math:pow(X2 - X1, 2) + math:pow(Y2 - Y1, 2)).

@@ -24,7 +24,8 @@
         "enabled": true,
         "nym": "@@NYM@@",
         "sync-address": "0.0.0.0:9900",
-        "spiridon": {
+        "routing": {
+            "type": "blind",
             "f": 0.2,
             "k": 10,
             "public-key": "@@PUBLIC-KEY@@",
