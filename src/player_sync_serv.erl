@@ -134,13 +134,19 @@ init(Parent, Nym, Port,
 initial_message_handler(State) ->
     receive
         {neighbour_workers, NeighbourWorkers} ->
-            case supervisor_helper:get_selected_worker_pids(
-		   [player_serv, nodis_serv], NeighbourWorkers) of
-		[PlayerServPid, undefined] ->
-		    NodisServPid = whereis(nodis_serv);
-		[PlayerServPid, NodisServPid] ->
-		    ok
-	    end,
+            case (State#state.options)#player_sync_serv_options.simulated of
+                true ->
+                    [PlayerServPid, NodisServPid] =
+                        supervisor_helper:get_selected_worker_pids(
+                          [player_serv, nodis_serv],
+                          NeighbourWorkers);
+                false->
+                    [PlayerServPid] =
+                        supervisor_helper:get_selected_worker_pids(
+                          [player_serv],
+                          NeighbourWorkers),
+                    NodisServPid = whereis(nodis_serv)
+            end,
             {swap_message_handler, fun ?MODULE:message_handler/1,
              State#state{player_serv_pid = PlayerServPid,
 			 nodis_serv_pid = NodisServPid}}

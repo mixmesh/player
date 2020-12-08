@@ -25,22 +25,22 @@
         "nym": "@@NYM@@",
         "sync-address": "0.0.0.0:9900",
         "routing": {
-            "type": "blind",
+            "type": "location",
             "f": 0.2,
             "k": 10,
             "public-key": "@@PUBLIC-KEY@@",
             "secret-key": "@@SECRET-KEY@@"
         },
         "smtp-server": {
-            "address": "0.0.0.0:@@SMTP-PORT@@",
+            "address": "pan0:@@SMTP-PORT@@",
             "password-digest": "@@SMTP-PASSWORD-DIGEST@@"
         },
         "pop3-server": {
-            "address": "0.0.0.0:@@POP3-PORT@@",
+            "address": "pan0:@@POP3-PORT@@",
             "password-digest": "@@POP3-PASSWORD-DIGEST@@"
         },
         "http-server": {
-            "address": "0.0.0.0:@@HTTP-PORT@@",
+            "address": ["usb0:@@HTTP-PORT@@", "pan0:@@HTTP-PORT@@"],
             "password": "@@HTTP-PASSWORD@@"
         },
         "pki-access-settings": {

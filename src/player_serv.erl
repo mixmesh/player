@@ -92,16 +92,22 @@ start_link(Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
 
 initial_message_handler(#state{nym = Nym,
                                keys = {PublicKey, _SecretKey},
-                               pki_mode = PkiMode} = State) ->
+                               pki_mode = PkiMode,
+                               simulated = Simulated} = State) ->
     receive
         {neighbour_workers, NeighbourWorkers} ->
-            case supervisor_helper:get_selected_worker_pids(
-                   [maildrop_serv, nodis_serv, pki_serv],
-                   NeighbourWorkers) of
-                [MaildropServPid, undefined, PkiServPid] ->
-                    NodisServPid = whereis(nodis_serv);
-                [MaildropServPid, NodisServPid, PkiServPid] ->
-                    ok
+            case Simulated of
+                true ->
+                    [MaildropServPid, NodisServPid, PkiServPid] =
+                        supervisor_helper:get_selected_worker_pids(
+                          [maildrop_serv, nodis_serv, pki_serv],
+                          NeighbourWorkers);
+                false->
+                    [MaildropServPid, PkiServPid] =
+                        supervisor_helper:get_selected_worker_pids(
+                          [maildrop_serv, pki_serv],
+                          NeighbourWorkers),
+                    NodisServPid = whereis(nodis_serv)
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
             ok = publish_public_key(PkiServPid, PkiMode, Nym, PublicKey),

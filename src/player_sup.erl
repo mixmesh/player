@@ -105,20 +105,23 @@ init(normal) ->
           start => {pop3_serv, start_link,
                     [Nym, Pop3PasswordDigest, TempDir, CertFilename,
                      Pop3Address]}},
-    RestServerSpec =
-	#{id => rest_normal_server,
-          start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, TempDir, CertFilename, HttpAddress]}},
+    RestServerSpecs =
+        lists:map(fun({IpAddress, Port}) ->
+                          #{id => {rest_normal_server, {IpAddress, Port}},
+                            start => {rest_normal_server, start_link,
+                                      [Nym, HttpPassword, TempDir, CertFilename,
+                                       {IpAddress, Port}]}}
+                  end, HttpAddress),
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {local_pki_serv, start_link, [LocalPkiDir]}},
-    {ok, {#{strategy => one_for_all}, [PlayerServSpec,
-                                       PlayerSyncServSpec,
-                                       MaildropServSpec,
-                                       SmtpServSpec,
-                                       Pop3ServSpec,
-                                       RestServerSpec,
-                                       LocalPkiServSpec]}};
+    {ok, {#{strategy => one_for_all},
+          [PlayerServSpec,
+           PlayerSyncServSpec,
+           MaildropServSpec,
+           SmtpServSpec,
+           Pop3ServSpec] ++ RestServerSpecs ++
+              [LocalPkiServSpec]}};
 init(#simulated_player_serv_config{
         players_dir = PlayersDir,
         nym = Nym,
@@ -163,26 +166,29 @@ init(#simulated_player_serv_config{
           start => {pop3_serv, start_link,
                     [Nym, Pop3PasswordDigest, TempDir, CertFilename,
                      Pop3Address]}},
-    RestServerSpec =
-	#{id => rest_normal_server,
-          start => {rest_normal_server, start_link,
-                    [Nym, HttpPassword, TempDir, CertFilename, HttpAddress]}},
-    {_SyncIp,SyncPort} = SyncAddress,
+    RestServerSpecs =
+        lists:map(fun({IpAddress, Port}) ->
+                          #{id => {rest_normal_server, {IpAddress, Port}},
+                            start => {rest_normal_server, start_link,
+                                      [Nym, HttpPassword, TempDir, CertFilename,
+                                       {IpAddress, Port}]}}
+                  end, HttpAddress),
+    {_SyncIp, SyncPort} = SyncAddress,
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_serv, start_link,
                     [#{simulation => true,
 		       mport => SyncPort,
-		       oport => SyncPort+1 }]}},
+		       oport => SyncPort + 1}]}},
     LocalPkiServSpec =
         #{id => pki_serv,
           start => {local_pki_serv, start_link,
                     [LocalPkiDir]}},
-    {ok, {#{strategy => one_for_all}, [PlayerServSpec,
-                                       PlayerSyncServSpec,
-                                       MaildropServSpec,
-                                       SmtpServSpec,
-                                       Pop3ServSpec,
-                                       RestServerSpec,
-                                       NodisServSpec,
-                                       LocalPkiServSpec]}}.
+    {ok, {#{strategy => one_for_all},
+          [PlayerServSpec,
+           PlayerSyncServSpec,
+           MaildropServSpec,
+           SmtpServSpec,
+           Pop3ServSpec] ++ RestServerSpecs ++
+              [NodisServSpec,
+               LocalPkiServSpec]}}.

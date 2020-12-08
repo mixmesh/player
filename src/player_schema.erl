@@ -18,7 +18,7 @@ get() ->
            reloadable = false}},
        {'sync-address',
         #json_type{
-           name = ipaddress_port,
+           name = ip_address_port,
            typical = {{242,45,0,34}, 10000},
            reloadable = false}},
        {routing,
@@ -27,7 +27,7 @@ get() ->
              name = atom,
              info = "blind or location",
              typical = blind,
-             convert =
+             transform =
                  fun(blind) -> blind;
                     (location) -> location;
                     (_) ->
@@ -59,8 +59,8 @@ get() ->
        {'smtp-server',
         [{address,
           #json_type{
-             name = ipv4address_port,
-             typical = {{242,45,0,34}, 20000},
+             name = interface_port,
+             typical = <<"pan0:465">>,
              reloadable = false}},
          {'password-digest',
           #json_type{
@@ -70,8 +70,8 @@ get() ->
        {'pop3-server',
         [{address,
           #json_type{
-             name = ipv4address_port,
-             typical = {{242,45,0,34}, 30000},
+             name = interface_port,
+             typical = <<"pan0:465">>,
              reloadable = false}},
          {'password-digest',
           #json_type{
@@ -80,11 +80,11 @@ get() ->
              reloadable = false}}]},
        {'http-server',
         [{address,
-          #json_type{
-             name = ipaddress_port,
-             typical = {{242,45,0,34}, 8443},
-             reloadable = false}},
-         {'password',  %% should be stored encrypted via pin!
+          [#json_type{
+              name = interface_port,
+              typical = <<"pan0:443">>,
+              reloadable = false}]},
+         {'password', %% should be stored encrypted via pin!
           #json_type {
              name = string,  %% db password
              typical = <<"password">>,
@@ -95,7 +95,7 @@ get() ->
              name = atom,
              info = "global or local",
              typical = local,
-             convert =
+             transform =
                  fun(global) -> global;
                     (local) -> local;
                     (_) ->
@@ -114,13 +114,18 @@ get() ->
                name = atom,
                info = "tor-only, tcp-only or tor-fallback-to-tcp",
                typical = tor_only,
-               convert =
+               transform =
                    fun('tor-only') -> tor_only;
                       ('tcp-only') -> tcp_only;
                       ('tor-fallback-to-tcp') -> tor_fallback_to_tcp;
                       (_) ->
                            throw({failed,
                                   "Must be one of tor-only, tcp-only or tor-fallback-to-tcp"})
+                   end,
+               untransform =
+                   fun(tor_only) -> 'tor-only';
+                      (tcp_only) -> 'tcp-only';
+                      (tor_fallback_to_tcp) -> 'tor-fallback-to-tcp'
                    end,
                reloadable = false}},
            {'pki-server-tor-address',
@@ -130,6 +135,6 @@ get() ->
                reloadable = false}},
            {'pki-server-tcp-address',
             #json_type{
-               name = ipv4address_port,
+               name = ip4_address_port,
                typical = {"mother.tplinkdns.com", 10001},
                reloadable = false}}]}]}]}].

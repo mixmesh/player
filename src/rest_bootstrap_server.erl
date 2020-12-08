@@ -9,6 +9,9 @@
 -include_lib("rester/include/rester_socket.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 
+-define(BLUETOOTH_INTERFACE, "pan0").
+-define(USB_INTERFACE, "usb0").
+
 %% Exported: start_link
 
 start_link(Port) ->
@@ -232,7 +235,7 @@ bootstrap_install_post(JsonTerm) ->
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
-                        MailIpAddress = player_interface:get_mail_ip_address(),
+                        MailIpAddress = get_ip_address(?BLUETOOTH_INTERFACE),
                         SmtpAddress =
                             ?l2b(io_lib:format(
                                    "~s:~w",
@@ -241,7 +244,9 @@ bootstrap_install_post(JsonTerm) ->
                             ?l2b(io_lib:format(
                                    "~s:~w",
                                    [inet_parse:ntoa(MailIpAddress), Pop3Port])),
-                        HttpIpAddress = player_interface:get_http_ip_address(),
+                        HttpIpAddress = get_ip_address(?USB_INTERFACE),
+                        %% FIXME
+                        %%HttpIpAddress = get_ip_address(?BLUETOOTH_INTERFACE),
                         HttpAddress =
                             ?l2b(io_lib:format(
                                    "~s:~w",
@@ -355,7 +360,7 @@ bootstrap_reinstall_post(JsonTerm) ->
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
                         true = mkconfig:start(ObscreteDir, CertFilename, Nym),
-                        MailIpAddress = player_interface:get_mail_ip_address(),
+                        MailIpAddress = get_ip_address(?BLUETOOTH_INTERFACE),
                         SmtpAddress =
                             ?l2b(io_lib:format(
                                    "~s:~w",
@@ -364,7 +369,9 @@ bootstrap_reinstall_post(JsonTerm) ->
                             ?l2b(io_lib:format(
                                    "~s:~w",
                                    [inet_parse:ntoa(MailIpAddress), Pop3Port])),
-                        HttpIpAddress = player_interface:get_http_ip_address(),
+                        HttpIpAddress = get_ip_address(?USB_INTERFACE),
+                        %% FIXME
+                        %%HttpIpAddress =  get_ip_address(?BLUETOOTH_INTERFACE),
                         HttpAddress =
                             ?l2b(io_lib:format(
                                    "~s:~w",
@@ -387,6 +394,22 @@ bootstrap_reinstall_post(JsonTerm) ->
         throw:{error, ThrowReason} ->
             {error, bad_request, ThrowReason}
     end.
+
+get_ip_address(IfName) ->
+    {ok, IfAddrs} = inet:getifaddrs(),
+    get_ip_address(IfName, IfAddrs).
+
+get_ip_address(IfName, []) ->
+    {0, 0, 0, 0};
+get_ip_address(IfName, [{IfName, IfOpts}|_]) ->
+    case lists:keysearch(addr, 1, IfOpts) of
+        {value, {_, Addr}} ->
+            Addr;
+        false ->
+            {0, 0, 0, 0}
+    end;
+get_ip_address(IfName, [_|Rest]) ->
+    get_ip_address(IfName, Rest).
 
 %% /bootstrap/restart (POST)
 

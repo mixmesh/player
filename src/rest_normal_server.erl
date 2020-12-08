@@ -16,31 +16,16 @@
 
 %% Exported: start_link
 
-start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr,Port}) ->
-    S0 = [],
-    IdleTimeout =
-	case proplists:get_value(idle_timeout, S0, ?IDLE_TIMEOUT) of
-	    I when is_integer(I) -> I + 100; %% Give some extra time
-	    T -> T
-	end,
-    SendTimeout =
-	proplists:get_value(send_timeout, S0, ?SEND_TIMEOUT),
-    S01 = lists:foldl(fun(Key,Ai) ->
-			      proplists:delete(Key,Ai)
-		      end, S0, [port, idle_timeout, send_timeout]),
+start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr, Port}) ->
     ResterHttpArgs =
 	[{request_handler,
 	  {?MODULE, handle_http_request, [{temp_dir, TempDir}]}},
-	 %% FIXME: we should probably only allow digest!
-	 {access, [%% {basic,"",Nym,HttpPassword,"obscrete"},
-		   {digest,"",Nym,HttpPassword,"obscrete"}]},
+	 {access, [{digest, "", Nym, HttpPassword, "obscrete"}]},
 	 {verify, verify_none},
 	 {ifaddr, IfAddr},
 	 {certfile, HttpCertFilename},
 	 {nodelay, true},
-	 {reuseaddr, true},
-	 {idle_timeout, IdleTimeout},
-	 {send_timeout, SendTimeout}|S01],
+	 {reuseaddr, true}],
     ?daemon_log_tag_fmt(system, "Normal REST server for ~s on ~s:~w",
                         [Nym, inet:ntoa(IfAddr), Port]),
     rester_http_server:start_link(Port, ResterHttpArgs).
@@ -427,42 +412,28 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
             throw({invalid_filter, NewJsonPath});
         Value ->
             case get_config_type(AppSchemas, RealJsonPath) of
-                base64 ->
+                #json_type{name = base64} = JsonType ->
                     case RealJsonPath of
                         [player, routing, 'secret-key'] ->
+                            %% Decrypt the secret key
                             {ok, DecryptedSecretKey} =
                                 shared_decrypt_secret_key(Value),
-                            [{Name, base64:encode(DecryptedSecretKey)}|
+                            [{Name, config_serv:unconvert_value(
+                                      JsonType, DecryptedSecretKey)}|
                              get_config(Rest, AppSchemas, JsonPath)];
                         _ ->
-                            [{Name, base64:encode(Value)}|
+                            [{Name,
+                              config_serv:unconvert_value(JsonType, Value)}|
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
-                Type when Type == ipv4address_port orelse
-                          Type == ipaddress_port ->
-                    case {Name, JsonPath} of
-                        {<<"address">>, [Server, player]}
-                          when Server == 'smtp-server' orelse
-                               Server == 'pop3-server' ->
-                            IpAddress = player_interface:get_mail_ip_address(),
-                            {_, Port} = Value;
-                        {<<"address">>, ['http-server', player]} ->
-                            IpAddress = player_interface:get_http_ip_address(),
-                            {_, Port} = Value;
-                        _ ->
-                            {IpAddress, Port} = Value
-                    end,
-                    [{Name, ?l2b(io_lib:format(
-                                   "~s:~w",
-                                   [inet_parse:ntoa(IpAddress), Port]))}|
+                #json_type{name = interface_port} = JsonType ->
+                    %% Do not export the interface name, i.e. keep the
+                    %% ip-address.
+                    [{Name, config_serv:unconvert_value(
+                              #json_type{name = ip_address_port}, Value)}|
                      get_config(Rest, AppSchemas, JsonPath)];
-                Type when Type == ipaddress orelse
-                          Type == ipv4address orelse
-                          Type == ipv6address ->
-                    [{Name, ?l2b(inet_parse:ntoa(Value))}|
-                     get_config(Rest, AppSchemas, JsonPath)];
-                _ ->
-                    [{Name, Value}|
+                JsonType ->
+                    [{Name, config_serv:unconvert_value(JsonType, Value)}|
                      get_config(Rest, AppSchemas, JsonPath)]
             end
     end;
@@ -475,8 +446,8 @@ get_config_type(AppSchemas, [Name|_Rest] = JsonPath) ->
     {value, {_, Schema}} = lists:keysearch(Name, 1, AppSchemas),
     get_schema_type(Schema, JsonPath).
 
-get_schema_type([{Name, #json_type{name = TypeName}}|_], [Name]) ->
-    TypeName;
+get_schema_type([{Name, JsonType}|_], [Name]) ->
+    JsonType;
 get_schema_type([{Name, NestedSchema}|_], [Name|JsonPathRest]) ->
     get_schema_type(NestedSchema, JsonPathRest);
 get_schema_type([_|SchemaRest], JsonPath) ->
@@ -495,7 +466,8 @@ shared_decrypt_secret_key(DecodedSecretKey) ->
 edit_config_post(JsonTerm) ->
     try
         AppSchemas = obscrete_config_serv:get_schemas(),
-        edit_config(config_serv:atomify(JsonTerm), AppSchemas)
+        edit_config(config_serv:atomify(JsonTerm), AppSchemas),
+        ok = config_serv:export_config_file()
     catch
         throw:Reason ->
             {error, bad_request,
@@ -505,7 +477,7 @@ edit_config_post(JsonTerm) ->
 edit_config(JsonTerm, AppSchemas) ->
     {App, FirstNameInJsonPath, Schema, RemainingAppSchemas} =
         config_serv:lookup_schema(AppSchemas, JsonTerm),
-    case config_serv:validate(<<"/tmp">>, Schema, JsonTerm, true) of
+    case config_serv:convert(<<"/tmp">>, Schema, JsonTerm, true) of
         {NewJsonTerm, []} ->
             {ok, OldJsonTerm} = application:get_env(App, FirstNameInJsonPath),
             MergedJsonTerm = edit_config_merge(OldJsonTerm, NewJsonTerm),
