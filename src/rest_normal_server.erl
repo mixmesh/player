@@ -426,7 +426,7 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                               config_serv:unconvert_value(JsonType, Value)}|
                              get_config(Rest, AppSchemas, JsonPath)]
                     end;
-                #json_type{name = interface_port} = JsonType ->
+                #json_type{name = interface_port} ->
                     %% Do not export the interface name, i.e. keep the
                     %% ip-address.
                     [{Name, config_serv:unconvert_value(
@@ -475,6 +475,10 @@ edit_config_post(JsonTerm) ->
     end.
 
 edit_config(JsonTerm, AppSchemas) ->
+
+
+
+
     {App, FirstNameInJsonPath, Schema, RemainingAppSchemas} =
         config_serv:lookup_schema(AppSchemas, JsonTerm),
     case config_serv:convert(<<"/tmp">>, Schema, JsonTerm, true) of

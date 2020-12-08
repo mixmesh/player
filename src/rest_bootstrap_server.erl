@@ -399,7 +399,7 @@ get_ip_address(IfName) ->
     {ok, IfAddrs} = inet:getifaddrs(),
     get_ip_address(IfName, IfAddrs).
 
-get_ip_address(IfName, []) ->
+get_ip_address(_IfName, []) ->
     {0, 0, 0, 0};
 get_ip_address(IfName, [{IfName, IfOpts}|_]) ->
     case lists:keysearch(addr, 1, IfOpts) of

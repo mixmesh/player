@@ -196,7 +196,7 @@ select_suitable(
 
 select_suitable_indices(
   #buffer_handle{size = Size, buffer = Buffer}, RoutingInfo,
-  NeighbourRoutingInfo, F, N) ->
+  NeighbourRoutingInfo, _F, N) ->
     {SuitableWeightIndices, UnsuitableIndices} =
         ets:foldl(
           fun({Index, _RdC, _MessageMD5,
@@ -213,7 +213,7 @@ select_suitable_indices(
                       Weight when Weight < 1 ->
                           {[{Weight, Index}|SuitableWeightIndices],
                            UnsuitableIndices};
-                      Weight ->
+                      _Weight ->
                           {SuitableWeightIndices, [Index|UnsuitableIndices]}
                   end
           end, {[], []}, Buffer),
