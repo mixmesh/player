@@ -408,8 +408,18 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
     case config:lookup(RealJsonPath) of
         not_found ->
             throw({invalid_filter, NewJsonPath});
-        Value when is_list(Value) ->
-            throw({invalid_filter, NewJsonPath});
+        Values when is_list(Values) ->
+            case get_config_type(AppSchemas, RealJsonPath) of
+                [#json_type{name = interface_port}] ->
+                    %% Do not export the interface name, i.e. keep the
+                    %% ip-address.
+                    JsonType = #json_type{name = ip_address_port},
+                    [{Name, config_serv:unconvert_values(JsonType, Values)}|
+                     get_config(Rest, AppSchemas, JsonPath)];
+                [JsonType] ->
+                    [{Name, config_serv:unconvert_values(JsonType, Values)}|
+                     get_config(Rest, AppSchemas, JsonPath)]
+            end;
         Value ->
             case get_config_type(AppSchemas, RealJsonPath) of
                 #json_type{name = base64} = JsonType ->
@@ -429,8 +439,8 @@ get_config([{Name, true}|Rest], AppSchemas, JsonPath) ->
                 #json_type{name = interface_port} ->
                     %% Do not export the interface name, i.e. keep the
                     %% ip-address.
-                    [{Name, config_serv:unconvert_value(
-                              #json_type{name = ip_address_port}, Value)}|
+                    JsonType = #json_type{name = ip_address_port},
+                    [{Name, config_serv:unconvert_value(JsonType, Value)}|
                      get_config(Rest, AppSchemas, JsonPath)];
                 JsonType ->
                     [{Name, config_serv:unconvert_value(JsonType, Value)}|
