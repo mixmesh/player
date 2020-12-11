@@ -1,0 +1,8 @@
+%% -*- erlang -*-
+{application, player,
+ [{description, "A Player"},
+  {vsn, git},
+  {modules, ["@@MODULES@@"]},
+  {registered, []},
+  {mod, {player_app, []}},
+  {applications, [kernel, stdlib, sasl, pki, mail]}]}.
