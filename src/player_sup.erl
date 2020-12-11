@@ -39,8 +39,11 @@ init(normal) ->
         config:lookup_children(
           [nym, 'sync-address', routing, 'smtp-server', 'pop3-server',
            'http-server'], config:lookup([player])),
-    [RoutingType, F, EncodedPublicKey, EncryptedSecretKey] =
-        config:lookup_children([type, f, 'public-key', 'secret-key'], Routing),
+    [RoutingType, UseGps, Longitude, Latitude, F, EncodedPublicKey,
+     EncryptedSecretKey] =
+        config:lookup_children(
+          [type, 'use-gps', longitude, latitude, f, 'public-key', 'secret-key'],
+          Routing),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
     PinFilename = filename:join([ObscreteDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
@@ -86,8 +89,9 @@ init(normal) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
-                     not_set, not_set, PkiMode, _Simulated = false]}},
+                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
+                     Longitude, Latitude, Keys, not_set, not_set, PkiMode,
+                     _Simulated = false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -127,6 +131,9 @@ init(#simulated_player_serv_config{
         nym = Nym,
         sync_address = SyncAddress,
         routing_type = RoutingType,
+        use_gps = UseGps,
+        longitude = Longitude,
+        latitude = Latitude,
         keys = Keys,
         f = F,
         get_location_generator = GetLocationGenerator,
@@ -147,8 +154,9 @@ init(#simulated_player_serv_config{
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
-                     GetLocationGenerator, DegreesToMeters, PkiMode, true]}},
+                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
+                     Longitude, Latitude, Keys, GetLocationGenerator,
+                     DegreesToMeters, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,

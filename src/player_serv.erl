@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/10, stop/1]).
+-export([start_link/13, stop/1]).
 -export([pause/1, resume/1]).
 -export([become_forwarder/2, become_nothing/1, become_source/3,
          become_target/2]).
@@ -52,6 +52,7 @@
          reply_keys = not_set :: {#pk{}, #sk{}} | not_set,
          location_generator :: function(),
          degrees_to_meters :: function(),
+         use_gps :: boolean(),
          longitude = none :: float() | none,
          latitude = none :: float() | none,
          routing_info :: #routing_info{},
@@ -75,18 +76,20 @@
 %% Exported: start_link
 
 -spec start_link(binary(), {inet:ip_address(), inet:port_number()}, binary(),
-                 binary(), player_routing:routing_type(), {#pk{}, #sk{}},
+                 binary(), player_routing:routing_type(), boolean(), float(),
+                 float(), {#pk{}, #sk{}},
                  function() | not_set, function() | not_set, pki_mode(),
-                boolean()) ->
+                 boolean()) ->
           serv:spawn_server_result().
 
-start_link(Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
-           GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
+start_link(Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps, Longitude,
+           Latitude, Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
+           Simulated) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType,
-                    Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
-                    Simulated)
+                    UseGps, Longitude, Latitude, Keys, GetLocationGenerator,
+                    DegreesToMeters, PkiMode, Simulated)
        end,
        fun initial_message_handler/1).
 
@@ -235,8 +238,9 @@ get_routing_info(Pid) ->
 %% Server
 %%
 
-init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
-     GetLocationGenerator, DegreesToMeters, PkiMode, Simulated) ->
+init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
+     Longitude, Latitude, Keys, GetLocationGenerator, DegreesToMeters, PkiMode,
+     Simulated) ->
     rand:seed(exsss),
     {ok, BufferHandle} =
         player_buffer:new(BufferDir, ?PLAYER_BUFFER_MAX_SIZE, Simulated),
@@ -264,6 +268,9 @@ init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType, Keys,
                 keys = Keys,
                 location_generator = LocationGenerator,
                 degrees_to_meters = DegreesToMeters,
+                use_gps = UseGps,
+                longitude = Longitude,
+                latitude = Latitude,
                 routing_info = #routing_info{type = RoutingType},
                 pki_mode = PkiMode,
                 simulated = Simulated}}.
@@ -281,6 +288,7 @@ message_handler(
          keys = {_PublicKey, SecretKey} = Keys,
          location_generator = LocationGenerator,
          degrees_to_meters = _DegreesToMeters,
+         use_gps = _UseGps,
          longitude = Longitude,
          latitude = Latitude,
          routing_info = RoutingInfo,

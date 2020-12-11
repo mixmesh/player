@@ -476,8 +476,9 @@ shared_decrypt_secret_key(DecodedSecretKey) ->
 edit_config_post(JsonTerm) ->
     try
         AppSchemas = obscrete_config_serv:get_schemas(),
-        edit_config(config_serv:atomify(JsonTerm), AppSchemas),
-        ok = config_serv:export_config_file()
+        Result = edit_config(config_serv:atomify(JsonTerm), AppSchemas),
+        ok = config_serv:export_config_file(),
+        Result
     catch
         throw:Reason ->
             {error, bad_request,
@@ -485,10 +486,6 @@ edit_config_post(JsonTerm) ->
     end.
 
 edit_config(JsonTerm, AppSchemas) ->
-
-
-
-
     {App, FirstNameInJsonPath, Schema, RemainingAppSchemas} =
         config_serv:lookup_schema(AppSchemas, JsonTerm),
     case config_serv:convert(<<"/tmp">>, Schema, JsonTerm, true) of

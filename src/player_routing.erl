@@ -10,7 +10,7 @@
 -define(RADIANS_PER_DEGREE, (?PI / 180)).
 -define(NOT_USED, 0).
 
--type routing_type() :: blind | location | habitat.
+-type routing_type() :: blind | location.
 
 %% Exported: update_info
 

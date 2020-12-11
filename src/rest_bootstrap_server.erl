@@ -170,11 +170,19 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 
 bootstrap_install_post(JsonTerm) ->
     try
-        [Nym, SmtpPassword, Pop3Password, HttpPassword, SmtpPort, Pop3Port,
-         HttpPort, ObscreteDir, Pin] =
+        [Nym, RoutingType, UseGps, Longitude, Latitude, SmtpPassword,
+         Pop3Password, HttpPassword, SmtpPort, Pop3Port, HttpPort,
+         ObscreteDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"nym">>, fun erlang:is_binary/1},
+               {<<"routing-type">>, fun(<<"blind">>) -> true;
+                                       (<<"location">>) -> true;
+                                       (_) -> false
+                                    end, <<"location">>},
+               {<<"use-gps">>, fun erlang:is_boolean/1, true},
+               {<<"longitude">>, fun erlang:is_number/1, 0.0},
+               {<<"latitude">>, fun erlang:is_number/1, 0.0},
                {<<"smtp-password">>, fun erlang:is_binary/1},
                {<<"pop3-password">>, fun erlang:is_binary/1},
                {<<"http-password">>, fun erlang:is_binary/1},
@@ -215,6 +223,14 @@ bootstrap_install_post(JsonTerm) ->
                        {<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
                        {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
                        {<<"@@NYM@@">>, Nym},
+                       {<<"@@ROUTING-TYPE@@">>, RoutingType},
+                       {<<"@@USE-GPS@@">>, ?a2b(UseGps)},
+                       {<<"@@LONGITUDE@@">>,
+                        float_to_binary(
+                          Longitude * 1.0, [{decimals, 4}, compact])},
+                       {<<"@@LATITUDE@@">>,
+                        float_to_binary(
+                          Latitude * 1.0, [{decimals, 4}, compact])},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,
                         base64:encode(
                           player_crypto:digest_password(SmtpPassword))},
@@ -253,6 +269,10 @@ bootstrap_install_post(JsonTerm) ->
                                    [inet_parse:ntoa(HttpIpAddress), HttpPort])),
                         {ok, {format, [{<<"public-key">>, EncodedPublicKey},
                                        {<<"secret-key">>, EncodedSecretKey},
+                                       {<<"routing-type">>, RoutingType},
+                                       {<<"use-gps">>, UseGps},
+                                       {<<"longitude">>, Longitude},
+                                       {<<"latitude">>, Latitude},
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},
@@ -282,11 +302,19 @@ update_config(Config, [{Pattern, Replacement}|Rest]) ->
 
 bootstrap_reinstall_post(JsonTerm) ->
     try
-        [EncodedPublicKey, EncodedSecretKey, SmtpPassword, Pop3Password,
-         HttpPassword, SmtpPort, Pop3Port, HttpPort, ObscreteDir, Pin] =
+        [RoutingType, UseGps, Longitude, Latitude, EncodedPublicKey,
+         EncodedSecretKey, SmtpPassword, Pop3Password, HttpPassword, SmtpPort,
+         Pop3Port, HttpPort, ObscreteDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
-              [{<<"public-key">>, fun erlang:is_binary/1},
+              [{<<"routing-type">>, fun(<<"blind">>) -> true;
+                                       (<<"location">>) -> true;
+                                       (_) -> false
+                                    end, <<"location">>},
+               {<<"use-gps">>, fun erlang:is_boolean/1, true},
+               {<<"longitude">>, fun erlang:is_number/1, 0.0},
+               {<<"latitude">>, fun erlang:is_number/1, 0.0},
+               {<<"public-key">>, fun erlang:is_binary/1},
                {<<"secret-key">>, fun erlang:is_binary/1},
                {<<"smtp-password">>, fun erlang:is_binary/1},
                {<<"pop3-password">>, fun erlang:is_binary/1},
@@ -340,6 +368,14 @@ bootstrap_reinstall_post(JsonTerm) ->
                        {<<"@@PUBLIC-KEY@@">>, EncodedPublicKey},
                        {<<"@@SECRET-KEY@@">>, EncodedEncryptedSecretKey},
                        {<<"@@NYM@@">>, Nym},
+                       {<<"@@ROUTING-TYPE@@">>, RoutingType},
+                       {<<"@@USE-GPS@@">>, ?a2b(UseGps)},
+                       {<<"@@LONGITUDE@@">>,
+                        float_to_binary(
+                          Longitude * 1.0, [{decimals, 4}, compact])},
+                       {<<"@@LATITUDE@@">>,
+                        float_to_binary(
+                          Latitude * 1.0, [{decimals, 4}, compact])},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,
                         base64:encode(
                           player_crypto:digest_password(SmtpPassword))},
@@ -377,6 +413,10 @@ bootstrap_reinstall_post(JsonTerm) ->
                                    "~s:~w",
                                    [inet_parse:ntoa(HttpIpAddress), HttpPort])),
                         {ok, {format, [{<<"nym">>, Nym},
+                                       {<<"routing-type">>, RoutingType},
+                                       {<<"use-gps">>, UseGps},
+                                       {<<"longitude">>, Longitude},
+                                       {<<"latitude">>, Latitude},
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},

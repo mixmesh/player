@@ -36,6 +36,21 @@ get() ->
                             "Must be one of blind or location"})
                  end,
              reloadable = false}},
+         {'use-gps',
+          #json_type{
+             name = bool,
+             typical = true,
+             reloadable = false}},
+         {longitude,
+          #json_type{
+             name = {float, -180.0, 180.0},
+             typical = 0.0,
+             reloadable = false}},
+         {latitude,
+          #json_type{
+             name = {float, -90.0, 90.0},
+             typical = 0.0,
+             reloadable = false}},
          {f,
           #json_type{
              name = {float, 0.0, 1.0},
