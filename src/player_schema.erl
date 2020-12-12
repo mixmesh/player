@@ -16,11 +16,6 @@ get() ->
            name = string,
            typical = <<"johndoe">>,
            reloadable = false}},
-       {'sync-address',
-        #json_type{
-           name = ip_address_port,
-           typical = {{242,45,0,34}, 10000},
-           reloadable = false}},
        {routing,
         [{type,
           #json_type{
@@ -50,6 +45,12 @@ get() ->
           #json_type{
              name = {float, -90.0, 90.0},
              typical = 0.0,
+             reloadable = false}}]},
+       {'sync-server',
+        [{address,
+          #json_type{
+             name = ip_address_port,
+             typical = {{242,45,0,34}, 10000},
              reloadable = false}},
          {f,
           #json_type{

@@ -35,15 +35,16 @@ init(normal) ->
     [ObscreteDir, PinSalt] =
         config:lookup_children(['obscrete-dir', 'pin-salt'],
                                config:lookup([system])),
-    [Nym, SyncAddress, Routing, SmtpServer, Pop3Server, HttpServer] =
+    [Nym, Routing, SyncServer, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
-          [nym, 'sync-address', routing, 'smtp-server', 'pop3-server',
+          [nym, routing, 'sync-server', 'smtp-server', 'pop3-server',
            'http-server'], config:lookup([player])),
-    [RoutingType, UseGps, Longitude, Latitude, F, EncodedPublicKey,
-     EncryptedSecretKey] =
-        config:lookup_children(
-          [type, 'use-gps', longitude, latitude, f, 'public-key', 'secret-key'],
-          Routing),
+    [RoutingType, UseGps, Longitude, Latitude] =
+        config:lookup_children([type, 'use-gps', longitude, latitude],
+                               Routing),
+    [SyncAddress, F, EncodedPublicKey, EncryptedSecretKey] =
+        config:lookup_children([address, f, 'public-key', 'secret-key'],
+                               SyncServer),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
     PinFilename = filename:join([ObscreteDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
@@ -129,11 +130,11 @@ init(normal) ->
 init(#simulated_player_serv_config{
         players_dir = PlayersDir,
         nym = Nym,
-        sync_address = SyncAddress,
         routing_type = RoutingType,
         use_gps = UseGps,
         longitude = Longitude,
         latitude = Latitude,
+        sync_address = SyncAddress,
         keys = Keys,
         f = F,
         get_location_generator = GetLocationGenerator,
