@@ -23,12 +23,14 @@
     "player": {
         "enabled": true,
         "nym": "@@NYM@@",
-        "sync-address": "0.0.0.0:9900",
         "routing": {
             "type": "@@ROUTING-TYPE@@",
             "use-gps": @@USE-GPS@@,
             "longitude": @@LONGITUDE@@,
-            "latitude": @@LATITUDE@@,
+            "latitude": @@LATITUDE@@
+        },
+        "sync-server": {
+            "address": "0.0.0.0:9900",
             "f": 0.2,
             "k": 10,
             "public-key": "@@PUBLIC-KEY@@",
