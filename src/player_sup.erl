@@ -40,8 +40,7 @@ init(normal) ->
           [nym, routing, 'sync-server', 'smtp-server', 'pop3-server',
            'http-server'], config:lookup([player])),
     [RoutingType, UseGps, Longitude, Latitude] =
-        config:lookup_children([type, 'use-gps', longitude, latitude],
-                               Routing),
+        config:lookup_children([type, 'use-gps', longitude, latitude], Routing),
     [SyncAddress, F, EncodedPublicKey, EncryptedSecretKey] =
         config:lookup_children([address, f, 'public-key', 'secret-key'],
                                SyncServer),
@@ -91,7 +90,7 @@ init(normal) ->
         #{id => player_serv,
           start => {player_serv, start_link,
                     [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
-                     Longitude, Latitude, Keys, not_set, not_set, PkiMode,
+                     Longitude, Latitude, Keys, not_set, PkiMode,
                      _Simulated = false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
@@ -138,7 +137,6 @@ init(#simulated_player_serv_config{
         keys = Keys,
         f = F,
         get_location_generator = GetLocationGenerator,
-        degrees_to_meters = DegreesToMeters,
         smtp_address = SmtpAddress,
         smtp_password_digest = SmtpPasswordDigest,
         pop3_address = Pop3Address,
@@ -156,8 +154,8 @@ init(#simulated_player_serv_config{
         #{id => player_serv,
           start => {player_serv, start_link,
                     [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
-                     Longitude, Latitude, Keys, GetLocationGenerator,
-                     DegreesToMeters, PkiMode, true]}},
+                     Longitude, Latitude, Keys, GetLocationGenerator, PkiMode,
+                     true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,

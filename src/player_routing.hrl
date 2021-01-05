@@ -13,8 +13,8 @@
         (?ROUTING_HEADER_SIZE + ?ENCODED_SIZE)).
 
 -record(location_routing,
-        {x :: float(),
-         y :: float()}).
+        {longitude :: float(),
+         latitude :: float()}).
 
 -record(habitat_routing,
         {x1 :: float(),

@@ -79,7 +79,6 @@ trim(DSize, NewSize, Tab) ->
 -spec size(buffer_handle()) -> pos_integer().
 
 size(#buffer_handle{size = Size}) ->
-    %% ets:info(Buffer, size).
     Size.
 
 %% Exported: read
@@ -192,11 +191,11 @@ select_suitable(
   #buffer_handle{size = Size} = BufferHandle, RoutingInfo,
   NeighbourRoutingInfo, F) when is_float(F), F >= 0, F =< 1 ->
     select_suitable_indices(
-      BufferHandle, RoutingInfo, NeighbourRoutingInfo, F, round(Size * F)).
+      BufferHandle, RoutingInfo, NeighbourRoutingInfo, round(Size * F)).
 
 select_suitable_indices(
   #buffer_handle{size = Size, buffer = Buffer}, RoutingInfo,
-  NeighbourRoutingInfo, _F, N) ->
+  NeighbourRoutingInfo, N) ->
     {SuitableWeightIndices, UnsuitableIndices} =
         ets:foldl(
           fun({Index, _RdC, _MessageMD5,
@@ -222,6 +221,7 @@ select_suitable_indices(
             length(SuitableWeightIndices) == 0 ->
                 {[], UnsuitableIndices};
             true ->
+                %% Select half of the suitable indices
                 {UsedWeightIndices, UnusedWeightIndices} =
                     lists:split(trunc(0.5 * length(SuitableWeightIndices) + 1),
                                 lists:keysort(1, SuitableWeightIndices)),
@@ -229,26 +229,36 @@ select_suitable_indices(
                  [Index || {_, Index} <- UnusedWeightIndices] ++
                      UnsuitableIndices}
         end,
-    if
-        length(SuitableIndices) >= N ->
+    case length(SuitableIndices) of
+        NumberOfSuitableIndices when NumberOfSuitableIndices == N ->
+            SuitableIndices;
+        NumberOfSuitableIndices when NumberOfSuitableIndices > N ->
             {SelectedIndices, _} = lists:split(N, SuitableIndices),
             SelectedIndices;
-        true ->
-            {RandomIndices, _} =
-                lists:split(
-                  N - length(SuitableIndices),
-                  randomize_selected_messages(Size, SkipIndices, [])),
-            SuitableIndices ++ RandomIndices
+        NumberOfSuitableIndices ->
+            MissingNumberOfIndices = N - NumberOfSuitableIndices,
+            case pick_random_indices(Size, SkipIndices) of
+                RandomIndices
+                  when length(RandomIndices) =< MissingNumberOfIndices ->
+                    SuitableIndices ++ RandomIndices;
+                RandomIndices ->
+                    {SelectedRandomIndices, _} =
+                        lists:split(MissingNumberOfIndices, RandomIndices),
+                    SuitableIndices ++ SelectedRandomIndices
+            end
     end.
 
-randomize_selected_messages(0, _SkipIndices, Acc) ->
+pick_random_indices(Index, SkipIndices) ->
+    pick_random_indices(Index, SkipIndices, []).
+
+pick_random_indices(0, _SkipIndices, Acc) ->
     [Index || {_, Index} <- lists:keysort(1, Acc)];
-randomize_selected_messages(Index, SkipIndices, Acc) ->
+pick_random_indices(Index, SkipIndices, Acc) ->
     case lists:member(Index, SkipIndices) of
         true ->
-            randomize_selected_messages(Index - 1, SkipIndices, Acc);
+            pick_random_indices(Index - 1, SkipIndices, Acc);
         false ->
-            randomize_selected_messages(
+            pick_random_indices(
               Index - 1, SkipIndices, [{rand:uniform(), Index}|Acc])
     end.
 

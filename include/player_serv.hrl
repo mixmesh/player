@@ -35,7 +35,6 @@
          keys :: {#pk{}, #sk{}},
          f :: float(),
          get_location_generator :: function(),
-         degrees_to_meters :: function(),
          smtp_address :: {inet:ip4_address(), inet:port_number()},
          smtp_password_digest :: binary(),
          pop3_address :: {inet:ip4_address(), inet:port_number()},

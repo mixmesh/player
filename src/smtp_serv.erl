@@ -252,7 +252,6 @@ data(#channel{
             end
     end.
 
-
 %% https://tools.ietf.org/html/rfc2821#section-4.1.1.5
 rset(#channel{servlet_state = ServletState} = Channel, Args) ->
     ?dbg_log({rset, Channel, Args}),

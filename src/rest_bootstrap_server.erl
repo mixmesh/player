@@ -171,8 +171,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 bootstrap_install_post(JsonTerm) ->
     try
         [Nym, RoutingType, UseGps, Longitude, Latitude, SmtpPassword,
-         Pop3Password, HttpPassword, SmtpPort, Pop3Port, HttpPort,
-         ObscreteDir, Pin] =
+         Pop3Password, HttpPassword, SmtpPort, Pop3Port, HttpPort, ObscreteDir,
+         Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"nym">>, fun erlang:is_binary/1},
@@ -226,11 +226,11 @@ bootstrap_install_post(JsonTerm) ->
                        {<<"@@ROUTING-TYPE@@">>, RoutingType},
                        {<<"@@USE-GPS@@">>, ?a2b(UseGps)},
                        {<<"@@LONGITUDE@@">>,
-                        float_to_binary(
-                          Longitude * 1.0, [{decimals, 4}, compact])},
+                        float_to_binary(Longitude * 1.0,
+                                        [{decimals, 4}, compact])},
                        {<<"@@LATITUDE@@">>,
-                        float_to_binary(
-                          Latitude * 1.0, [{decimals, 4}, compact])},
+                        float_to_binary(Latitude * 1.0,
+                                        [{decimals, 4}, compact])},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,
                         base64:encode(
                           player_crypto:digest_password(SmtpPassword))},
@@ -371,11 +371,11 @@ bootstrap_reinstall_post(JsonTerm) ->
                        {<<"@@ROUTING-TYPE@@">>, RoutingType},
                        {<<"@@USE-GPS@@">>, ?a2b(UseGps)},
                        {<<"@@LONGITUDE@@">>,
-                        float_to_binary(
-                          Longitude * 1.0, [{decimals, 4}, compact])},
+                        float_to_binary(Longitude * 1.0,
+                                        [{decimals, 4}, compact])},
                        {<<"@@LATITUDE@@">>,
-                        float_to_binary(
-                          Latitude * 1.0, [{decimals, 4}, compact])},
+                        float_to_binary(Latitude * 1.0,
+                                        [{decimals, 4}, compact])},
                        {<<"@@SMTP-PASSWORD-DIGEST@@">>,
                         base64:encode(
                           player_crypto:digest_password(SmtpPassword))},
