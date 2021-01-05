@@ -23,7 +23,8 @@
         {simulated = false,
          size :: non_neg_integer(),
          buffer :: ets:tid(),
-         file_buffer :: reference()}).
+         file_buffer :: reference(),
+         rerandomization_time :: integer() | none}).
 
 -type buffer_handle() :: #buffer_handle{}.
 
@@ -50,13 +51,21 @@ new(Dir, Size, Simulated) ->
 		    %% ok = trim(DetsSize, Size, FileBuffer),
                     Buffer = ets:new(player_buffer, []),
                     true = ets:from_dets(Buffer, FileBuffer),
+                    RerandomizationTime =
+                        case Simulated of
+                            true ->
+                                config:lookup(
+                                  [simulator, 'rerandomization-time']);
+                            false ->
+                                none
+                        end,
                     BufferHandle =
                         #buffer_handle{
 			   simulated = Simulated,
 			   size = Size,
                            buffer = Buffer,
-                           file_buffer = FileBuffer
-			  },
+                           file_buffer = FileBuffer,
+                           rerandomization_time = RerandomizationTime},
                     {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
@@ -86,7 +95,8 @@ size(#buffer_handle{size = Size}) ->
 %% read a message from the buffer
 read(#buffer_handle{simulated = Simulated,
                     buffer = Buffer,
-                    size = Size}, Index)
+                    size = Size,
+                    rerandomization_time = RerandomizationTime}, Index)
   when is_integer(Index), Index >= 1, Index =< Size ->
     case ets:lookup(Buffer, Index) of
 	[{_, 0, _MD5, RoutingHeaderAndMessage}] -> %% fresh message
@@ -98,7 +108,7 @@ read(#buffer_handle{simulated = Simulated,
             %% if already read we must scramble
 	    if
                 Simulated ->
-		    timer:sleep(100),  %% simulate work
+		    timer:sleep(RerandomizationTime), %% simulate work
 		    RoutingHeaderAndMessage;
                 true ->
 		    %% FIXME dets insert? 
@@ -108,7 +118,7 @@ read(#buffer_handle{simulated = Simulated,
 	    Message = crypto:strong_rand_bytes(?ENCODED_SIZE),
 	    if
                 Simulated ->
-		    timer:sleep(100),  %% simulate work
+		    timer:sleep(RerandomizationTime), %% simulate work
                     RoutingHeader = player_routing:info_to_header(blind),
                     ?l2b([RoutingHeader, Message]);
                 true ->
