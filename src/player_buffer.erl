@@ -28,6 +28,8 @@
 
 -type buffer_handle() :: #buffer_handle{}.
 
+-define(RERANDOMIZATION_TIME, 100).
+
 %% Exported: new
 
 -spec new(Dirname::binary(), Size::non_neg_integer(), 
@@ -51,21 +53,22 @@ new(Dir, Size, Simulated) ->
 		    %% ok = trim(DetsSize, Size, FileBuffer),
                     Buffer = ets:new(player_buffer, []),
                     true = ets:from_dets(Buffer, FileBuffer),
-                    RerandomizationTime =
-                        case Simulated of
-                            true ->
-                                config:lookup(
-                                  [simulator, 'rerandomization-time']);
+                    SimulatorScaleFactor =
+                        case os:getenv("SCALEFACTOR") of
                             false ->
-                                none
+                                1;
+                            ScaleFactorString ->
+                                ?l2i(ScaleFactorString)
                         end,
+                    ScaledRerandomizationTime =
+                        round(?RERANDOMIZATION_TIME / SimulatorScaleFactor),
                     BufferHandle =
                         #buffer_handle{
 			   simulated = Simulated,
 			   size = Size,
                            buffer = Buffer,
                            file_buffer = FileBuffer,
-                           rerandomization_time = RerandomizationTime},
+                           rerandomization_time = ScaledRerandomizationTime},
                     {ok, BufferHandle};
                 {error, Reason} ->
                     {error, {file_buffer_corrupt, Reason}}
@@ -139,7 +142,9 @@ write(BufferHandle, Index,
 write(#buffer_handle{simulated = Simulated,
 		     buffer = Buffer,
                      file_buffer = FileBuffer,
-		     size = Size}, Index, RoutingHeader, Message)
+		     size = Size,
+                     rerandomization_time = RerandomizationTime},
+      Index, RoutingHeader, Message)
   when is_integer(Index) andalso
        Index >= 1 andalso
        Index =< Size andalso
@@ -148,7 +153,7 @@ write(#buffer_handle{simulated = Simulated,
        byte_size(RoutingHeader) =:= ?ROUTING_HEADER_SIZE ->
     if
         Simulated ->
-	    timer:sleep(100),  %% simulate work
+            timer:sleep(RerandomizationTime), %% simulate work
 	    MD5 = erlang:md5(Message),
             RoutingHeaderAndMessage = ?l2b([RoutingHeader, Message]),
 	    true = ets:insert(

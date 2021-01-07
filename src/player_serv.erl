@@ -439,7 +439,9 @@ message_handler(
                                 _ ->
                                     ok = simulator_serv:received_message(
                                            Nym, SenderNym)
-                            end;
+                            end,
+                            true = stats_db:message_received(
+                                     MessageMD5, SenderNym, Nym);
                         false ->
                             ok
                     end,
@@ -452,9 +454,8 @@ message_handler(
                        [Nym, SenderNym, ?bin2xx(MessageMD5)]),
                     case Simulated of
                         true ->
-                            %% true = stats_db:message_duplicate_received(
-			    %% MD5, SenderNym, Nym);
-			    true;
+                            stats_db:message_duplicate_received(
+                              DigestedDecryptedData, SenderNym, Nym);
                         false ->
                             true
                     end,
@@ -484,6 +485,8 @@ message_handler(
                                         EncryptedData, IndexList),
                     case Simulated of
                         true ->
+                            true = stats_db:message_created(
+                                     MessageMD5, Nym, RecipientNym),
                             ok = simulator_serv:elect_source_and_target(
                                    MessageMD5, Nym, RecipientNym),
                             {reply, From, ok, State};
