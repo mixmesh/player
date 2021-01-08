@@ -52,6 +52,11 @@ get() ->
              name = ip_address_port,
              typical = {{242,45,0,34}, 10000},
              reloadable = false}},
+         {'buffer-size',
+          #json_type{
+             name = {integer, 100, 10000000},
+             typical = 1000,
+             reloadable = false}},
          {f,
           #json_type{
              name = {float, 0.0, 1.0},
@@ -59,7 +64,7 @@ get() ->
              reloadable = false}},
          {k,
           #json_type{
-             name = {integer, 1, 100},
+             name = {integer, 1, 10000},
              typical = 10,
              reloadable = false}},
          {'public-key',

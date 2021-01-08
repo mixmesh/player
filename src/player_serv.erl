@@ -1,5 +1,5 @@
 -module(player_serv).
--export([start_link/12, stop/1]).
+-export([start_link/15, stop/1]).
 -export([become_source/3,
          become_target/2,
          become_forwarder/2,
@@ -47,6 +47,9 @@
          maildrop_serv_pid = not_set :: pid() | not_set,
          pki_serv_pid = not_set :: pid() | not_set,
          sync_address :: {inet:ip_address(), inet:port_number()},
+         buffer_size :: integer(),
+         f :: number(),
+         k :: number(),
          temp_dir :: binary(),
          buffer_dir :: binary(),
          buffer_handle :: player_buffer:buffer_handle(),
@@ -76,19 +79,20 @@
 
 %% Exported: start_link
 
--spec start_link(binary(), {inet:ip_address(), inet:port_number()}, binary(),
-                 binary(), player_routing:routing_type(), boolean(), float(),
-                 float(), {#pk{}, #sk{}},
-                 function() | not_set, pki_mode(), boolean()) ->
+-spec start_link(binary(), {inet:ip_address(), inet:port_number()}, integer(),
+                 number(), number(), binary(), binary(),
+                 player_routing:routing_type(), boolean(), float(), float(),
+                 {#pk{}, #sk{}}, function() | not_set, pki_mode(), boolean()) ->
           serv:spawn_server_result().
 
-start_link(Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps, Longitude,
-           Latitude, Keys, GetLocationGenerator, PkiMode, Simulated) ->
+start_link(Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir, RoutingType,
+           UseGps, Longitude, Latitude, Keys, GetLocationGenerator, PkiMode,
+           Simulated) ->
     ?spawn_server(
        fun(Parent) ->
-               init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType,
-                    UseGps, Longitude, Latitude, Keys, GetLocationGenerator,
-                    PkiMode, Simulated)
+               init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir,
+                    BufferDir, RoutingType, UseGps, Longitude, Latitude, Keys,
+                    GetLocationGenerator, PkiMode, Simulated)
        end,
        fun initial_message_handler/1).
 
@@ -230,11 +234,11 @@ get_routing_info(Pid) ->
 %% Server
 %%
 
-init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
-     Longitude, Latitude, Keys, GetLocationGenerator, PkiMode, Simulated) ->
+init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
+     RoutingType, UseGps, Longitude, Latitude, Keys, GetLocationGenerator,
+     PkiMode, Simulated) ->
     rand:seed(exsss),
-    {ok, BufferHandle} =
-        player_buffer:new(BufferDir, ?PLAYER_BUFFER_MAX_SIZE, Simulated),
+    {ok, BufferHandle} = player_buffer:new(BufferDir, BufferSize, Simulated),
     case Simulated of
         true ->
             LocationGenerator = GetLocationGenerator();
@@ -252,6 +256,9 @@ init(Parent, Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
     {ok, #state{parent = Parent,
                 nym = Nym,
                 sync_address = SyncAddress,
+                buffer_size = BufferSize,
+                f = F,
+                k = K,
                 temp_dir = TempDir,
                 buffer_dir = BufferDir,
                 buffer_handle = BufferHandle,
@@ -271,6 +278,9 @@ message_handler(
          maildrop_serv_pid = MaildropServPid,
          pki_serv_pid = PkiServPid,
          sync_address = SyncAddress,
+         buffer_size = BufferSize,
+         f = F,
+         k = K,
          temp_dir = TempDir,
          buffer_dir = _BufferDir,
          buffer_handle = BufferHandle,
@@ -469,7 +479,7 @@ message_handler(
                     EncryptedData =
                         elgamal:uencrypt(Payload, RecipientPublicKey,
                                          SecretKey),
-		    IndexList = player_buffer:select(BufferHandle, ?K),
+		    IndexList = player_buffer:select(BufferHandle, K),
 		    MessageMD5 = erlang:md5(EncryptedData),
                     RecipientRoutingHeader =
                         case Simulated of
@@ -518,7 +528,7 @@ message_handler(
 		      #player_sync_serv_options{
 			 simulated = Simulated,
 			 sync_address = SyncAddress,
-			 f = ?F,
+			 f = F,
 			 keys = Keys}),
 		    %% put in pid here? now in {sync,..}
 		    {noreply, State};

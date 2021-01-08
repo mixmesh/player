@@ -7,7 +7,6 @@
 start() ->
     file:delete("/tmp/db"),
     {ok, BufferHandle} = player_buffer:new(<<"/tmp">>),
-    ?PLAYER_BUFFER_MAX_SIZE = player_buffer:size(BufferHandle),
     EncryptedData =
         elgamal:urandomize(crypto:strong_rand_bytes(?ENCODED_SIZE)),
     ok = replace_messages(BufferHandle, 0, EncryptedData, 50),
@@ -17,8 +16,7 @@ start() ->
     ReplacementMessage = <<0:64/unsigned-integer, EncryptedData/binary>>,
     {ok, Index} = player_buffer:swap(
                     BufferHandle, Reservation2, ReplacementMessage),
-    {ok, ReplacementMessage} = player_buffer:inspect(BufferHandle, Index),
-    ?PLAYER_BUFFER_MAX_SIZE = player_buffer:size(BufferHandle).
+    {ok, ReplacementMessage} = player_buffer:inspect(BufferHandle, Index).
 
 replace_messages(_BufferHandle, _MessageId, _EncryptedData, 0) ->
     ok;
@@ -26,5 +24,4 @@ replace_messages(BufferHandle, MessageId, EncryptedData, K) ->
     Message = <<MessageId:64/unsigned-integer, EncryptedData/binary>>,
     Index = player_buffer:replace(BufferHandle, Message),
     true = is_integer(Index),
-    ?PLAYER_BUFFER_MAX_SIZE = player_buffer:size(BufferHandle),
     replace_messages(BufferHandle, MessageId, EncryptedData, K - 1).

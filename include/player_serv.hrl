@@ -3,10 +3,6 @@
 
 -include_lib("elgamal/include/elgamal.hrl").
 
-%% Spiridon parameters
--define(F, 0.2).
--define(K, 10).
-
 -record(player,
         {nym :: binary(),
          player_serv_pid :: pid(),
@@ -29,11 +25,13 @@
          nym :: binary(),
          routing_type :: player_routing:routing_type(),
          use_gps :: boolean(),
-         longitude :: float(),
-         latitude :: float(),
+         longitude :: number(),
+         latitude :: number(),
          sync_address :: {inet:ip_address(), inet:port_number()},
-         keys :: {#pk{}, #sk{}},
+         buffer_size :: integer(),
          f :: float(),
+         k :: number(),
+         keys :: {#pk{}, #sk{}},
          get_location_generator :: function(),
          smtp_address :: {inet:ip4_address(), inet:port_number()},
          smtp_password_digest :: binary(),

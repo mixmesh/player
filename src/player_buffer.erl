@@ -1,5 +1,5 @@
 -module(player_buffer).
--export([new/1, new/3, delete/1]).
+-export([new/2, new/3, delete/1]).
 -export([read/2, write/3, write/4]).
 -export([count/2]).
 -export([size/1]).
@@ -32,13 +32,13 @@
 
 %% Exported: new
 
--spec new(Dirname::binary(), Size::non_neg_integer(), 
+-spec new(Dirname::binary(), BufferSize::non_neg_integer(), 
 	  Simulated::boolean()) ->
           {ok, buffer_handle()} |
           {error, invalid_buffer_dir | {file_buffer_corrupt, term()}}.
 
-new(Dir) ->
-    new(Dir, ?PLAYER_BUFFER_MAX_SIZE, false).
+new(Dir, Size) ->
+    new(Dir, Size, false).
 
 new(Dir, Size, Simulated) ->
     case filelib:is_dir(Dir) of

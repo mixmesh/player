@@ -41,8 +41,9 @@ init(normal) ->
            'http-server'], config:lookup([player])),
     [RoutingType, UseGps, Longitude, Latitude] =
         config:lookup_children([type, 'use-gps', longitude, latitude], Routing),
-    [SyncAddress, F, EncodedPublicKey, EncryptedSecretKey] =
-        config:lookup_children([address, f, 'public-key', 'secret-key'],
+    [SyncAddress, BufferSize, F, K, EncodedPublicKey, EncryptedSecretKey] =
+        config:lookup_children([address, 'buffer-size', f, k, 'public-key',
+                                'secret-key'],
                                SyncServer),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
     PinFilename = filename:join([ObscreteDir, <<"pin">>]),
@@ -89,9 +90,9 @@ init(normal) ->
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
-                     Longitude, Latitude, Keys, not_set, PkiMode,
-                     _Simulated = false]}},
+                    [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
+                     RoutingType, UseGps, Longitude, Latitude, Keys, not_set,
+                     PkiMode, _Simulated = false]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -134,8 +135,10 @@ init(#simulated_player_serv_config{
         longitude = Longitude,
         latitude = Latitude,
         sync_address = SyncAddress,
-        keys = Keys,
+        buffer_size = BufferSize,
         f = F,
+        k = K,
+        keys = Keys,
         get_location_generator = GetLocationGenerator,
         smtp_address = SmtpAddress,
         smtp_password_digest = SmtpPasswordDigest,
@@ -153,9 +156,9 @@ init(#simulated_player_serv_config{
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
-                    [Nym, SyncAddress, TempDir, BufferDir, RoutingType, UseGps,
-                     Longitude, Latitude, Keys, GetLocationGenerator, PkiMode,
-                     true]}},
+                    [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
+                     RoutingType, UseGps, Longitude, Latitude, Keys,
+                     GetLocationGenerator, PkiMode, true]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,

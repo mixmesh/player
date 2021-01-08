@@ -31,6 +31,7 @@
         },
         "sync-server": {
             "address": "0.0.0.0:9900",
+            "buffer-size": 1000,            
             "f": 0.2,
             "k": 10,
             "public-key": "@@PUBLIC-KEY@@",
