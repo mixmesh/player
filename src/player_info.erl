@@ -16,7 +16,7 @@
 new() ->
     %% nym => #{key=>value}
     T = ets:new(?TAB, [public, named_table, {write_concurrency, true}]),
-    io:format("player_info table created ~p\n", [ets:info(player_info)]),
+    %%io:format("player_info table created ~p\n", [ets:info(player_info)]),
     T.
 
 add(Nym) ->
