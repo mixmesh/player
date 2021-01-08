@@ -514,10 +514,7 @@ message_handler(
             case maps:get(NAddr, NeighbourMon, undefined) of
                 undefined ->
                     player_sync_serv:connect(
-		      self(),
-                      RoutingInfo,
-		      NodisServPid,
-		      NAddr,
+                      Simulated, self(), RoutingInfo, NodisServPid, NAddr,
 		      #player_sync_serv_options{
 			 simulated = Simulated,
 			 sync_address = SyncAddress,
@@ -577,8 +574,15 @@ message_handler(
 	    if  Reason =:= normal -> ok;
 		Reason =:= killed -> ok;  %% we killed the sync pid
 		true ->
-		    io:format("sync? process ~w down reason=~p\n", 
-			      [SyncPid, Reason])
+                    %% TONY: Jag tror detta beror på att player_server_sync.erl
+                    %% dör på fel sätt.
+                    %% Sök efter "%% TONY: Should we die here? Probably not?" i
+                    %% player_sync_serv.erl
+                    %% FIXME: Removing this printout for now!
+                    %%        Just to silence it
+%		    io:format("sync? process ~w down reason=~p\n", 
+%			      [SyncPid, Reason])
+                    ok
 	    end,
             NeighbourMon1 = 
 		case maps:get(Mon, NeighbourMon, undefined) of

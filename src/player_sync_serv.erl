@@ -1,5 +1,5 @@
 -module(player_sync_serv).
--export([connect/5]).
+-export([connect/6]).
 -export([start_link/5, stop/1]).
 -export([message_handler/1]).
 
@@ -16,6 +16,7 @@
 
 -record(state,
         {parent :: pid(),
+         simulated = false :: boolean(),
          options :: #player_sync_serv_options{},
          listen_socket :: inet:socket(),
          acceptors :: [pid()],
@@ -24,14 +25,14 @@
 
 %% Exported: connect
 
-connect(PlayerServPid, RoutingInfo, NodisServPid, NAddr, Options) ->
+connect(Simulated, PlayerServPid, RoutingInfo, NodisServPid, NAddr, Options) ->
     Pid = proc_lib:spawn(
             fun() ->
-                    connect_now(PlayerServPid, RoutingInfo, NodisServPid, NAddr,
-                                Options) end),
+                    connect_now(Simulated, PlayerServPid, RoutingInfo,
+                                NodisServPid, NAddr, Options) end),
     {ok, Pid}.
 
-connect_now(PlayerServPid, RoutingInfo, NodisServPid,
+connect_now(Simulated, PlayerServPid, RoutingInfo, NodisServPid,
 	    NAddr, #player_sync_serv_options{
 		      sync_address = SyncAddress,
 		      connect_timeout = ConnectTimeout} = Options) ->
@@ -54,9 +55,11 @@ connect_now(PlayerServPid, RoutingInfo, NodisServPid,
                                               [{sndbuf, ?SND_BUFFER_SIZE},
                                                {recbuf, ?REC_BUFFER_SIZE},
                                                {send_timeout, ?SEND_TIMEOUT}]),
-                            sync_messages(PlayerServPid, NeighbourRoutingInfo,
-                                          NodisServPid, NAddr, Socket, Options);
+                            sync_messages(Simulated, PlayerServPid,
+                                          NeighbourRoutingInfo, NodisServPid,
+                                          NAddr, Socket, Options);
                         {error, closed} ->
+                            %% TONY: Should we die here? Probably not?
                             ok;
                         {error, Reason} ->
                             ?error_log({connect_handshake, Reason})
@@ -110,6 +113,7 @@ stop(Pid) ->
 
 init(Parent, Nym, Port,
      #player_sync_serv_options{
+        simulated = Simulated,
         ip_address = IpAddress} = Options) ->
     Family = if tuple_size(IpAddress) =:= 4 -> [inet];
 		tuple_size(IpAddress) =:= 8 -> [inet6];
@@ -127,6 +131,7 @@ init(Parent, Nym, Port,
        system, "Player sync server starting for ~s on ~s:~w",
        [Nym, inet:ntoa(IpAddress), Port]),
     {ok, #state{parent = Parent,
+                simulated = Simulated,
                 options = Options,
                 listen_socket = ListenSocket,
                 acceptors = []}}.
@@ -153,6 +158,7 @@ initial_message_handler(State) ->
     end.
 
 message_handler(#state{parent = Parent,
+                       simulated = Simulated,
                        options = Options,
                        listen_socket = ListenSocket,
                        acceptors = Acceptors,
@@ -166,8 +172,8 @@ message_handler(#state{parent = Parent,
             Pid =
                 proc_lib:spawn_link(
                   fun() ->
-                          acceptor(Owner, PlayerServPid, NodisServPid,
-				   Options, ListenSocket)
+                          acceptor(Owner, Simulated, PlayerServPid,
+                                   NodisServPid, Options, ListenSocket)
                   end),
             {noreply, State#state{acceptors = [Pid|Acceptors]}};
         {system, From, Request} ->
@@ -193,7 +199,8 @@ message_handler(#state{parent = Parent,
             noreply
     end.
 
-acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
+acceptor(Owner, Simulated, PlayerServPid, NodisServPid, Options,
+         ListenSocket) ->
     %% Check failure reason of ListenSocket (reload, interface error etc)
     {ok, Socket} = gen_tcp:accept(ListenSocket),
     {ok, SyncAddress} = inet:sockname(Socket),
@@ -212,7 +219,7 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
                                       [{sndbuf, ?SND_BUFFER_SIZE},
                                        {recbuf, ?REC_BUFFER_SIZE},
                                        {send_timeout, ?SEND_TIMEOUT}]),
-                    sync_messages(PlayerServPid, NeighbourRoutingInfo,
+                    sync_messages(Simulated, PlayerServPid, NeighbourRoutingInfo,
                                   NodisServPid, NAddr, Socket, Options);
                 {error, Reason} ->
                     ?error_log({accept_handshake, Reason})
@@ -222,7 +229,8 @@ acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket) ->
 	    %% Try to close nicely
 	    ok = gen_tcp:shutdown(Socket, write),
 	    sync_recv(PlayerServPid, NAddr, Socket, 0, Options),
-	    acceptor(Owner, PlayerServPid, NodisServPid, Options, ListenSocket)
+	    acceptor(Owner, Simulated, PlayerServPid, NodisServPid, Options,
+                     ListenSocket)
     end.
 
 accept_handshake(RoutingInfo, Socket) ->
@@ -239,13 +247,16 @@ accept_handshake(RoutingInfo, Socket) ->
             {error, Reason}
     end.
 
-sync_messages(PlayerServPid, NeighbourRoutingInfo, _NodisServPid, NAddr, Socket,
-              Options) ->
+sync_messages(Simulated, PlayerServPid, NeighbourRoutingInfo, _NodisServPid,
+              NAddr, Socket, Options) ->
     F = Options#player_sync_serv_options.f,
     IndexList = player_serv:buffer_select_suitable(
                   PlayerServPid, NeighbourRoutingInfo, F),
     case sync_messages_(PlayerServPid, NeighbourRoutingInfo, NAddr, Socket,
                         IndexList, 0, Options) of
+	{ok, N} when Simulated ->
+            true = stats_db:messages_relayed(N),
+	    ok;
 	{ok, _N} ->
 	    %% ?dbg_log_tag(sync, {ok, N}),
 	    ok;
