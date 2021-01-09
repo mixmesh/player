@@ -190,9 +190,27 @@ select(#buffer_handle{size = Size} = BufferHandle, K)
   when is_integer(K), K > 0, K =< Size ->
     select_random_indices(BufferHandle, K).
 
-select_random_indices(#buffer_handle{size = Size}, N) ->
+select_random_indices(#buffer_handle{simulated = Simulated,
+                                     size = Size,
+                                     buffer= Buffer}, N) ->
     {RandomIndices, _} = lists:split(N, randomize_messages(Size, [])),
-    RandomIndices.
+    case Simulated of
+        true ->
+            NumberOfOverwrittenIndices =
+                lists:foldl(
+                  fun(RandomIndex, NumberOfOverwrittenIndices) ->
+                          case ets:lookup(Buffer, RandomIndex) of
+                              [] ->
+                                  NumberOfOverwrittenIndices;
+                              _ ->
+                                  NumberOfOverwrittenIndices + 1
+                          end
+                  end, 0, RandomIndices),
+            true = stats_db:messages_overwritten(NumberOfOverwrittenIndices),
+            RandomIndices;
+        false ->
+            RandomIndices
+    end.
 
 randomize_messages(0, Acc) ->
     [Index || {_, Index} <- lists:keysort(1, Acc)];
@@ -255,6 +273,9 @@ select_suitable_indices(
             case pick_random_indices(Size, SkipIndices) of
                 RandomIndices
                   when length(RandomIndices) =< MissingNumberOfIndices ->
+                    %% Note: RandomIndices may be so few that
+                    %% SuitableIndices ++ RandomIndices is less than N.
+                    %% Is this really the behaviour want?
                     SuitableIndices ++ RandomIndices;
                 RandomIndices ->
                     {SelectedRandomIndices, _} =
