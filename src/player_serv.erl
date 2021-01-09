@@ -336,7 +336,11 @@ message_handler(
                                         x = CenterLongitude,
                                         y = CenterLatitude,
                                         count = Count,
-                                        pick_mode = NewPickMode})
+                                        pick_mode = NewPickMode}),
+                    UpdatedRoutingInfo =
+                        player_routing:update_info(
+                          RoutingInfo, CenterLongitude, CenterLatitude),
+                    true = player_info:set(Nym ,routing_info, UpdatedRoutingInfo)
             end,
 	    {noreply, State#state{pick_mode = NewPickMode}};
         {cast, {become_forwarder, MessageMD5}} ->
@@ -680,7 +684,7 @@ message_handler(
                     case Simulated of
                         true ->
                             true = player_info:set(
-                                     Nym , routing_info, UpdatedRoutingInfo);
+                                     Nym, routing_info, UpdatedRoutingInfo);
                         false ->
                             true
                     end,
