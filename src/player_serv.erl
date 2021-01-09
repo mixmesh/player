@@ -1,7 +1,7 @@
 -module(player_serv).
 -export([start_link/15, stop/1]).
 -export([become_source/3,
-         become_target/2,
+         become_target/3,
          become_forwarder/2,
          become_nothing/1]).
 -export([buffer_read/2,
@@ -140,10 +140,11 @@ become_source(Pid, TargetNym, MessageMD5) ->
 
 %% Exported: become_target
 
--spec become_target(pid(), message_id()) -> ok.
+-spec become_target(pid(), no | {yes, {number(), number()}}, message_id()) ->
+          ok.
 
-become_target(Pid, MessageMD5) ->
-    serv:cast(Pid, {become_target, MessageMD5}).
+become_target(Pid, CenterTarget, MessageMD5) ->
+    serv:cast(Pid, {become_target, CenterTarget, MessageMD5}).
 
 %% Exported: become_forwarder
 
@@ -318,15 +319,25 @@ message_handler(
                                 count = Count,
                                 pick_mode = NewPickMode}),
             {noreply, State#state{pick_mode = NewPickMode}};
-        {cast, {become_target, MessageMD5}} ->
+        {cast, {become_target, CenterTarget, MessageMD5}} ->
 	    ?dbg_log_fmt("~s has been elected as new target (~s)",
                          [Nym, ?bin2xx(MessageMD5)]),
             NewPickMode = {is_target, MessageMD5},
             Count = count_messages(MessageMD5, BufferHandle),
-            true = player_db:update(
-                     #db_player{nym = Nym,
-                                count = Count,
-                                pick_mode = NewPickMode}),
+            case CenterTarget of
+                no ->
+                    true = player_db:update(
+                             #db_player{nym = Nym,
+                                        count = Count,
+                                        pick_mode = NewPickMode});
+                {yes, {CenterLongitude, CenterLatitude}} ->
+                    true = player_db:update(
+                             #db_player{nym = Nym,
+                                        x = CenterLongitude,
+                                        y = CenterLatitude,
+                                        count = Count,
+                                        pick_mode = NewPickMode})
+            end,
 	    {noreply, State#state{pick_mode = NewPickMode}};
         {cast, {become_forwarder, MessageMD5}} ->
 	    ?dbg_log_fmt("~s has been elected as forwarder (~s)",
@@ -626,10 +637,12 @@ message_handler(
                         {_, 0.0} ->
                             ?dbg_log_tag(
                                location,
-                               {initial_location, Timestamp, NextLongitude, NextLatitude}),
+                               {initial_location, Timestamp, NextLongitude,
+                                NextLatitude}),
                             case Simulated of
                                 true ->
-                                    true = player_db:add(Nym, NextLongitude, NextLatitude);
+                                    true = player_db:add(
+                                             Nym, NextLongitude, NextLatitude);
                                 false ->
                                     true
                             end;
@@ -638,7 +651,8 @@ message_handler(
                         _ ->
                             ?dbg_log_tag(
                                location,
-                               {location_updated, Nym, Longitude, Latitude, Timestamp, NextLongitude,
+                               {location_updated, Nym, Longitude, Latitude,
+                                Timestamp, NextLongitude,
                                 NextLatitude}),
                             case Simulated of
                                 true ->
