@@ -94,6 +94,8 @@ is_neighbour_more_suitable(_NeighbourRouting,
                            #routing_info{type = location, data = none},
                            _MessageRoutingInfo) ->
     blind;
+is_neighbour_more_suitable(NeighbourRoutingInfo, RoutingInfo, RoutingInfo) ->
+    1.1; %% Not suitable, i.e. > 1
 is_neighbour_more_suitable(NeighbourRoutingInfo, RoutingInfo,
                            MessageRoutingInfo) ->
     distance(NeighbourRoutingInfo, MessageRoutingInfo) /

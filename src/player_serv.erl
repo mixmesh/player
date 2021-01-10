@@ -75,7 +75,8 @@
 	 nodis_serv_pid :: pid() | undefined,
          nodis_subscription :: reference() | undefined,
          reserved_message_indices = [] ::
-           [{pid(), Index :: pos_integer()}]}).
+           [{pid(), Index :: pos_integer()}],
+         is_pinned_by_simulator = false :: boolean()}).
 
 %% Exported: start_link
 
@@ -301,8 +302,8 @@ message_handler(
          pki_mode = PkiMode,
          simulated = Simulated,
 	 nodis_serv_pid = NodisServPid,
-         nodis_subscription = NodisSubscription
-	} = State) ->
+         nodis_subscription = NodisSubscription,
+         is_pinned_by_simulator = IsPinnedBySimulator} = State) ->
     receive
         config_updated ->
             ?daemon_log_tag_fmt(system, "Player noticed a config change", []),
@@ -342,7 +343,8 @@ message_handler(
                           RoutingInfo, CenterLongitude, CenterLatitude),
                     true = player_info:set(Nym ,routing_info, UpdatedRoutingInfo)
             end,
-	    {noreply, State#state{pick_mode = NewPickMode}};
+	    {noreply, State#state{pick_mode = NewPickMode,
+                                  is_pinned_by_simulator = true}};
         {cast, {become_forwarder, MessageMD5}} ->
 	    ?dbg_log_fmt("~s has been elected as forwarder (~s)",
 			 [Nym, ?bin2xx(MessageMD5)]),
@@ -651,6 +653,8 @@ message_handler(
                                     true
                             end;
                         {{is_target, _}, _} ->
+                            true;
+                        _ when IsPinnedBySimulator ->
                             true;
                         _ ->
                             ?dbg_log_tag(

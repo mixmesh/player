@@ -54,11 +54,11 @@ new(Dir, Size, Simulated) ->
                     Buffer = ets:new(player_buffer, []),
                     true = ets:from_dets(Buffer, FileBuffer),
                     SimulatorScaleFactor =
-                        case os:getenv("SCALEFACTOR") of
+                        case Simulated of
+                            true ->
+                                simulator:scale_factor();
                             false ->
-                                1;
-                            ScaleFactorString ->
-                                ?l2i(ScaleFactorString)
+                                1
                         end,
                     ScaledRerandomizationTime =
                         round(?RERANDOMIZATION_TIME / SimulatorScaleFactor),
