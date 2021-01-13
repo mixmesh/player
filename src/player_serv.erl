@@ -1,7 +1,7 @@
 -module(player_serv).
 -export([start_link/15, stop/1]).
 -export([become_source/3,
-         become_target/3,
+         become_target/2,
          become_forwarder/2,
          become_nothing/1]).
 -export([buffer_read/2,
@@ -11,7 +11,7 @@
 -export([got_message/5]).
 -export([pick_as_source/1]).
 -export([send_message/3]).
--export([get_routing_info/1]).
+-export([pin_location/2, get_routing_info/1]).
 -export([start_location_updating/1]).
 -export([message_handler/1]).
 -export_type([message_id/0, pick_mode/0]).
@@ -132,6 +132,13 @@ initial_message_handler(#state{nym = Nym,
 stop(Pid) ->
     serv:call(Pid, stop).
 
+%% Exported: pin_location
+
+-spec pin_location(pid(), {number(), number()}) -> ok.
+
+pin_location(Pid, {Longitude, Latitude}) ->
+    serv:cast(Pid, {pin_location, Longitude, Latitude}).
+
 %% Exported: become_source
 
 -spec become_source(pid(), binary(), message_id()) -> ok.
@@ -141,11 +148,11 @@ become_source(Pid, TargetNym, MessageMD5) ->
 
 %% Exported: become_target
 
--spec become_target(pid(), no | {yes, {number(), number()}}, message_id()) ->
+-spec become_target(pid(), message_id()) ->
           ok.
 
-become_target(Pid, CenterTarget, MessageMD5) ->
-    serv:cast(Pid, {become_target, CenterTarget, MessageMD5}).
+become_target(Pid, MessageMD5) ->
+    serv:cast(Pid, {become_target, MessageMD5}).
 
 %% Exported: become_forwarder
 
@@ -280,7 +287,7 @@ message_handler(
          maildrop_serv_pid = MaildropServPid,
          pki_serv_pid = PkiServPid,
          sync_address = SyncAddress,
-         buffer_size = BufferSize,
+         buffer_size = _BufferSize,
          f = F,
          k = K,
          temp_dir = TempDir,
@@ -320,31 +327,16 @@ message_handler(
                                 count = Count,
                                 pick_mode = NewPickMode}),
             {noreply, State#state{pick_mode = NewPickMode}};
-        {cast, {become_target, CenterTarget, MessageMD5}} ->
+        {cast, {become_target, MessageMD5}} ->
 	    ?dbg_log_fmt("~s has been elected as new target (~s)",
                          [Nym, ?bin2xx(MessageMD5)]),
             NewPickMode = {is_target, MessageMD5},
             Count = count_messages(MessageMD5, BufferHandle),
-            case CenterTarget of
-                no ->
-                    true = player_db:update(
-                             #db_player{nym = Nym,
-                                        count = Count,
-                                        pick_mode = NewPickMode});
-                {yes, {CenterLongitude, CenterLatitude}} ->
-                    true = player_db:update(
-                             #db_player{nym = Nym,
-                                        x = CenterLongitude,
-                                        y = CenterLatitude,
-                                        count = Count,
-                                        pick_mode = NewPickMode}),
-                    UpdatedRoutingInfo =
-                        player_routing:update_info(
-                          RoutingInfo, CenterLongitude, CenterLatitude),
-                    true = player_info:set(Nym ,routing_info, UpdatedRoutingInfo)
-            end,
-	    {noreply, State#state{pick_mode = NewPickMode,
-                                  is_pinned_by_simulator = true}};
+            true = player_db:update(
+                     #db_player{nym = Nym,
+                                count = Count,
+                                pick_mode = NewPickMode}),
+            {noreply, State#state{pick_mode = NewPickMode}};
         {cast, {become_forwarder, MessageMD5}} ->
 	    ?dbg_log_fmt("~s has been elected as forwarder (~s)",
 			 [Nym, ?bin2xx(MessageMD5)]),
@@ -524,10 +516,30 @@ message_handler(
                     {reply, From, {error, Reason}}
             end;
         {cast, start_location_updating} ->
+            true = player_db:add(Nym, Longitude, Latitude),
+            true = player_db:update(
+                     #db_player{
+                        nym = Nym,
+                        buffer_size = player_buffer:size(BufferHandle)}),
             self() ! {location_updated, 0},
             noreply;
         {call, From, get_routing_info} ->
 	    {reply, From, RoutingInfo, State};
+        {cast, {pin_location, NewLongitude, NewLatitude}} ->
+            true = player_db:update(
+                     #db_player{nym = Nym,
+                                x = NewLongitude,
+                                y = NewLatitude,
+                                buffer_size =
+                                    player_buffer:size(BufferHandle)}),
+            UpdatedRoutingInfo =
+                player_routing:update_info(
+                  RoutingInfo, NewLongitude, NewLatitude),
+            true = player_info:set(Nym, routing_info, UpdatedRoutingInfo),
+            {noreply, State#state{longitude = NewLongitude,
+                                  latitude = NewLatitude,
+                                  routing_info = UpdatedRoutingInfo,
+                                  is_pinned_by_simulator = true}};
         %%
         %% Nodis subscription events
         %%
@@ -626,6 +638,8 @@ message_handler(
         %%
         %% Below follows handling of internally generated messages
         %%
+        {location_updated, _Timestamp} when IsPinnedBySimulator ->
+            noreply;
         {location_updated, Timestamp} ->
             case LocationGenerator() of
                 end_of_locations ->
@@ -639,43 +653,18 @@ message_handler(
                     {noreply, State#state{is_zombie = true}};
                 {{NextTimestamp, NextLongitude, NextLatitude},
                  NewLocationGenerator} ->
-                    case {PickMode, Longitude} of
-                        {_, 0.0} ->
-                            ?dbg_log_tag(
-                               location,
-                               {initial_location, Timestamp, NextLongitude,
-                                NextLatitude}),
-                            case Simulated of
-                                true ->
-                                    true = player_db:add(
-                                             Nym, NextLongitude, NextLatitude);
-                                false ->
-                                    true
-                            end;
-                        {{is_target, _}, _} ->
-                            true;
-                        _ when IsPinnedBySimulator ->
-                            true;
-                        _ ->
-                            ?dbg_log_tag(
-                               location,
-                               {location_updated, Nym, Longitude, Latitude,
-                                Timestamp, NextLongitude,
-                                NextLatitude}),
-                            case Simulated of
-                                true ->
-                                    true = player_db:update(
-                                             #db_player{
-                                                nym = Nym,
-                                                x = NextLongitude,
-                                                y = NextLatitude,
-                                                buffer_size =
-                                                    player_buffer:size(
-                                                      BufferHandle),
-                                                pick_mode = PickMode});
-                                false ->
-                                    true
-                            end
+                    ?dbg_log_tag(
+                       location, {location_updated, Nym, Longitude, Latitude,
+                                  Timestamp, NextLongitude, NextLatitude}),
+                    case Simulated of
+                        true ->
+                            true = player_db:update(
+                                     #db_player{
+                                        nym = Nym,
+                                        x = NextLongitude,
+                                        y = NextLatitude});
+                        false ->
+                            true
                     end,
                     ?dbg_log_tag(location,
 				 {will_check_location, Nym,
@@ -684,7 +673,8 @@ message_handler(
                     erlang:send_after(NextUpdate, self(),
                                       {location_updated, NextTimestamp}),
                     UpdatedRoutingInfo =
-                        player_routing:update_info(RoutingInfo, Longitude, Latitude),
+                        player_routing:update_info(
+                          RoutingInfo, Longitude, Latitude),
                     case Simulated of
                         true ->
                             true = player_info:set(
