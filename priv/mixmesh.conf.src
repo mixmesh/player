@@ -1,7 +1,7 @@
 {
     "system": {
         "initialization-time": @@INITIALIZATION-TIME@@,
-        "obscrete-dir": "@@OBSCRETE-DIR@@",
+        "mixmesh-dir": "@@MIXMESH-DIR@@",
         "pin-salt": "@@PIN-SALT@@"
     },
     "nodis": {
@@ -18,7 +18,7 @@
         "enabled": false,
         "address": "0.0.0.0:11112",
         "timeout": 30000,
-        "data-dir": "@@OBSCRETE-DIR@@/global-pki"
+        "data-dir": "@@MIXMESH-DIR@@/global-pki"
     },
     "player": {
         "enabled": true,
@@ -59,7 +59,7 @@
             }
         }
     },
-    "obscrete-control": {
+    "mixmesh-control": {
         "listen": "127.0.0.1:23313"
     },
     "logs": {
@@ -72,7 +72,7 @@
             "tty": false,
             "file": {
                 "enabled": true,
-                "path": "@@OBSCRETE-DIR@@/@@NYM@@/daemon.log"
+                "path": "@@MIXMESH-DIR@@/@@NYM@@/daemon.log"
             }
         },
         "dbg": {
@@ -84,7 +84,7 @@
             "tty": false,
             "file": {
                 "enabled": true,
-                "path": "@@OBSCRETE-DIR@@/@@NYM@@/dbg.log"
+                "path": "@@MIXMESH-DIR@@/@@NYM@@/dbg.log"
             }
         },
         "error": {
@@ -92,7 +92,7 @@
             "tty": false,
             "file": {
                 "enabled": true,
-                "path": "@@OBSCRETE-DIR@@/@@NYM@@"
+                "path": "@@MIXMESH-DIR@@/@@NYM@@"
             }
         }
     }

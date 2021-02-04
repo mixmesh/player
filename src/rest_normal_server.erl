@@ -20,7 +20,7 @@ start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr, Port}) ->
     ResterHttpArgs =
 	[{request_handler,
 	  {?MODULE, handle_http_request, [{temp_dir, TempDir}]}},
-	 {access, [{digest, "", Nym, HttpPassword, "obscrete"}]},
+	 {access, [{digest, "", Nym, HttpPassword, "mixmesh"}]},
 	 {verify, verify_none},
 	 {ifaddr, IfAddr},
 	 {certfile, HttpCertFilename},
@@ -162,7 +162,7 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
                 end,
             AbsFilename =
                 filename:join(
-                  [filename:absname(code:priv_dir(obscrete)), "docroot",
+                  [filename:absname(code:priv_dir(mixmesh)), "docroot",
                    tl(UriPath)]),
             case filelib:is_regular(AbsFilename) of
                 true ->
@@ -382,7 +382,7 @@ handle_http_post(Socket, Request, Options, Url, Tokens, Body, dj) ->
 get_config_post(Filter)
   when is_list(Filter) ->
     try
-        AppSchemas = obscrete_config_serv:get_schemas(),
+        AppSchemas = mixmesh_config_serv:get_schemas(),
         {ok, {format, get_config(Filter, AppSchemas)}}
     catch
         throw:{invalid_filter, JsonPath} ->
@@ -464,8 +464,8 @@ get_schema_type([_|SchemaRest], JsonPath) ->
     get_schema_type(SchemaRest, JsonPath).
 
 shared_decrypt_secret_key(DecodedSecretKey) ->
-    ObscreteDir = config:lookup([system, 'obscrete-dir']),
-    PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+    MixmeshDir = config:lookup([system, 'mixmesh-dir']),
+    PinFilename = filename:join([MixmeshDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
     PinSalt = config:lookup([system, 'pin-salt']),
     SharedKey = player_crypto:generate_shared_key(Pin, PinSalt),
@@ -475,7 +475,7 @@ shared_decrypt_secret_key(DecodedSecretKey) ->
 
 edit_config_post(JsonTerm) ->
     try
-        AppSchemas = obscrete_config_serv:get_schemas(),
+        AppSchemas = mixmesh_config_serv:get_schemas(),
         Result = edit_config(config_serv:atomify(JsonTerm), AppSchemas),
         ok = config_serv:export_config_file(),
         Result

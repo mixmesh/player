@@ -79,7 +79,7 @@ handle_http_get(Socket, Request, _Options, Url, Tokens, _Body, v1) ->
         end,
     AbsFilename =
         filename:join(
-          [filename:absname(code:priv_dir(obscrete)), "docroot",
+          [filename:absname(code:priv_dir(mixmesh)), "docroot",
            tl(UriPath)]),
     case filelib:is_regular(AbsFilename) of
         true ->
@@ -171,7 +171,7 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, _Body, dj) ->
 bootstrap_install_post(JsonTerm) ->
     try
         [Nym, RoutingType, UseGps, Longitude, Latitude, SmtpPassword,
-         Pop3Password, HttpPassword, SmtpPort, Pop3Port, HttpPort, ObscreteDir,
+         Pop3Password, HttpPassword, SmtpPort, Pop3Port, HttpPort, MixmeshDir,
          Pin] =
             rest_util:parse_json_params(
               JsonTerm,
@@ -189,13 +189,13 @@ bootstrap_install_post(JsonTerm) ->
                {<<"smtp-port">>, fun erlang:is_integer/1, 465},
                {<<"pop3-port">>, fun erlang:is_integer/1, 995},
                {<<"http-port">>, fun erlang:is_integer/1, 443},
-               {<<"obscrete-dir">>, fun erlang:is_binary/1,
-                <<"/tmp/obscrete">>},
+               {<<"mixmesh-dir">>, fun erlang:is_binary/1,
+                <<"/tmp/mixmesh">>},
                {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
         PinSalt = player_crypto:pin_salt(),
         case player_crypto:make_key_pair(?b2l(Pin), PinSalt, ?b2l(Nym)) of
             {ok, PublicKey, SecretKey, EncryptedSecretKey} ->
-                PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+                PinFilename = filename:join([MixmeshDir, <<"pin">>]),
                 case file:write_file(PinFilename, Pin) of
                     ok ->
                         ok;
@@ -207,7 +207,7 @@ bootstrap_install_post(JsonTerm) ->
                 end,
                 SourceConfigFilename =
                     filename:join(
-                      [code:priv_dir(player), <<"obscrete.conf.src">>]),
+                      [code:priv_dir(player), <<"mixmesh.conf.src">>]),
                 {ok, SourceConfig} = file:read_file(SourceConfigFilename),
                 {MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
                 SecondsSinceEpoch = MegaSecs * 1000000 + Secs,
@@ -241,16 +241,16 @@ bootstrap_install_post(JsonTerm) ->
                        {<<"@@SMTP-PORT@@">>, ?i2b(SmtpPort)},
                        {<<"@@POP3-PORT@@">>, ?i2b(Pop3Port)},
                        {<<"@@HTTP-PORT@@">>, ?i2b(HttpPort)},
-                       {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
+                       {<<"@@MIXMESH-DIR@@">>, MixmeshDir},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
-                    filename:join([ObscreteDir, <<"obscrete.conf">>]),
+                    filename:join([MixmeshDir, <<"mixmesh.conf">>]),
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
                         CertFilename =
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
-                        true = mkconfig:start(ObscreteDir, CertFilename, Nym),
+                        true = mkconfig:start(MixmeshDir, CertFilename, Nym),
                         MailIpAddress = get_ip_address(?BLUETOOTH_INTERFACE),
                         SmtpAddress =
                             ?l2b(io_lib:format(
@@ -276,7 +276,7 @@ bootstrap_install_post(JsonTerm) ->
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},
-                                       {<<"obscrete-dir">>, ObscreteDir},
+                                       {<<"mixmesh-dir">>, MixmeshDir},
                                        {<<"pin">>, Pin},
                                        {<<"pin-salt">>, EncodedPinSalt}]}};
                     {error, _Reason2} ->
@@ -304,7 +304,7 @@ bootstrap_reinstall_post(JsonTerm) ->
     try
         [RoutingType, UseGps, Longitude, Latitude, EncodedPublicKey,
          EncodedSecretKey, SmtpPassword, Pop3Password, HttpPassword, SmtpPort,
-         Pop3Port, HttpPort, ObscreteDir, Pin] =
+         Pop3Port, HttpPort, MixmeshDir, Pin] =
             rest_util:parse_json_params(
               JsonTerm,
               [{<<"routing-type">>, fun(<<"blind">>) -> true;
@@ -322,8 +322,8 @@ bootstrap_reinstall_post(JsonTerm) ->
                {<<"smtp-port">>, fun erlang:is_integer/1, 465},
                {<<"pop3-port">>, fun erlang:is_integer/1, 995},
                {<<"http-port">>, fun erlang:is_integer/1, 443},
-               {<<"obscrete-dir">>, fun erlang:is_binary/1,
-                <<"/tmp/obscrete">>},
+               {<<"mixmesh-dir">>, fun erlang:is_binary/1,
+                <<"/tmp/mixmesh">>},
                {<<"pin">>, fun erlang:is_binary/1, <<"123456">>}]),
         UnpackedKeys =
             try
@@ -338,7 +338,7 @@ bootstrap_reinstall_post(JsonTerm) ->
             bad_keys ->
                 throw({error, "Invalid keys"});
             {Nym, DecodedSecretKey} ->
-                PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+                PinFilename = filename:join([MixmeshDir, <<"pin">>]),
                 case file:write_file(PinFilename, Pin) of
                     ok ->
                         ok;
@@ -356,7 +356,7 @@ bootstrap_reinstall_post(JsonTerm) ->
                     player_crypto:shared_encrypt(SharedKey, DecodedSecretKey),
                 SourceConfigFilename =
                     filename:join(
-                      [code:priv_dir(player), <<"obscrete.conf.src">>]),
+                      [code:priv_dir(player), <<"mixmesh.conf.src">>]),
                 {ok, SourceConfig} = file:read_file(SourceConfigFilename),
                 EncodedEncryptedSecretKey = base64:encode(EncryptedSecretKey),
                 EncodedPinSalt = base64:encode(PinSalt),
@@ -386,16 +386,16 @@ bootstrap_reinstall_post(JsonTerm) ->
                        {<<"@@SMTP-PORT@@">>, ?i2b(SmtpPort)},
                        {<<"@@POP3-PORT@@">>, ?i2b(Pop3Port)},
                        {<<"@@HTTP-PORT@@">>, ?i2b(HttpPort)},
-                       {<<"@@OBSCRETE-DIR@@">>, ObscreteDir},
+                       {<<"@@MIXMESH-DIR@@">>, MixmeshDir},
                        {<<"@@PIN-SALT@@">>, EncodedPinSalt}]),
                 TargetConfigFilename =
-                    filename:join([ObscreteDir, <<"obscrete.conf">>]),
+                    filename:join([MixmeshDir, <<"mixmesh.conf">>]),
                 case file:write_file(TargetConfigFilename, TargetConfig) of
                     ok ->
                         CertFilename =
                             filename:join([code:priv_dir(player),
                                            <<"cert.pem">>]),
-                        true = mkconfig:start(ObscreteDir, CertFilename, Nym),
+                        true = mkconfig:start(MixmeshDir, CertFilename, Nym),
                         MailIpAddress = get_ip_address(?BLUETOOTH_INTERFACE),
                         SmtpAddress =
                             ?l2b(io_lib:format(
@@ -420,7 +420,7 @@ bootstrap_reinstall_post(JsonTerm) ->
                                        {<<"smtp-address">>, SmtpAddress},
                                        {<<"pop3-address">>, Pop3Address},
                                        {<<"http-address">>, HttpAddress},
-                                       {<<"obscrete-dir">>, ObscreteDir},
+                                       {<<"mixmesh-dir">>, MixmeshDir},
                                        {<<"pin">>, Pin},
                                        {<<"pin-salt">>, EncodedPinSalt}]}};
                     {error, _Reason2} ->
@@ -463,10 +463,10 @@ bootstrap_restart_post(_Time) ->
 
 bootstrap_key_import_post(FormData) ->
     try
-        [Nym, ObscreteDir, Pin, EncodedPinSalt] =
+        [Nym, MixmeshDir, Pin, EncodedPinSalt] =
             get_form_data(
               FormData,
-              [<<"nym">>, <<"obscrete-dir">>, <<"pin">>, <<"pin-salt">>]),
+              [<<"nym">>, <<"mixmesh-dir">>, <<"pin">>, <<"pin-salt">>]),
         PinSalt =
             try
                 base64:decode(EncodedPinSalt)
@@ -481,7 +481,7 @@ bootstrap_key_import_post(FormData) ->
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
                         case local_pki_serv:new_db(
-                               Nym, ObscreteDir, Pin, PinSalt) of
+                               Nym, MixmeshDir, Pin, PinSalt) of
                             {ok, File, SharedKey} ->
                                 Result =
                                     rest_normal_server:key_import_post(

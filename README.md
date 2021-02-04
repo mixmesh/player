@@ -9,8 +9,8 @@ A player listens on incoming SMTP and POP3 traffic in order to service
 end-users with mail access on the epedemic network.
 
 A player's characteristics can be configured using a players
-configuration directive in Obscrete's configuration files as seen in
-./obscrete/etc/*.conf.
+configuration directive in Mixmesh's configuration files as seen in
+./mixmesh/etc/*.conf.
 
 It is possible to start many players on a single Erlang node,
 i.e. you start several player_sup supervisors. This is what the
@@ -35,7 +35,7 @@ simulator application does.
   <dt>./src/player_buffer.erl</dt>
   <dd>A message buffer in which the player stores encrypted messages it receives from other players (and from itself). It is not persistent as of today. It should be.</dd>
   <dt>./src/player_config_schema.erl</dt>
-  <dd>Player/s has/have its/their own section/s in the Obscrete config file, e.g. see ./obscrete/etc/*.conf. This schema is activated in Obscrete's application file as seen in ./obscrete/ebin/obscrete.app.</dd>
+  <dd>Player/s has/have its/their own section/s in the Mixmesh config file, e.g. see ./mixmesh/etc/*.conf. This schema is activated in Mixmesh's application file as seen in ./mixmesh/ebin/mixmesh.app.</dd>
   <dt>./test/test_pop3_serv.erl</dt>
   <dd>Test for the pop3_serv module</dd>
   <dt>./test/test_smtp_serv.erl</dt>
@@ -46,11 +46,11 @@ simulator application does.
 
 `make runtest` runs all tests, i.e.
 
-`$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf test/`
+`$ ../mixmesh/bin/run_test --config ../mixmesh/etc/mixmesh.conf test/`
 
 Tests can be run individually as well:
 
 ```
-$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf pop3_serv
-$ ../obscrete/bin/run_test --config ../obscrete/etc/obscrete.conf smtp_serv
+$ ../mixmesh/bin/run_test --config ../mixmesh/etc/mixmesh.conf pop3_serv
+$ ../mixmesh/bin/run_test --config ../mixmesh/etc/mixmesh.conf smtp_serv
 ```

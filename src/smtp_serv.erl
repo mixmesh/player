@@ -4,7 +4,7 @@
 -export([helo/2, ehlo/2, auth/2, mail/2, rcpt/2, data/2, rset/2, vrfy/2, expn/2,
          help/2, quit/2, any/2]).
 
-%% DEBUG: swaks --from alice@obscrete.net --to alice@obscrete.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --tls-on-connect --auth-password baz --body "FOO"
+%% DEBUG: swaks --from alice@mixmesh.net --to alice@mixmesh.net --server 127.0.0.1:19900 --auth LOGIN --auth-user alice --tls-on-connect --auth-password baz --body "FOO"
 
 -include_lib("apptools/include/log.hrl").
 -include_lib("apptools/include/shorthand.hrl").

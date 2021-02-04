@@ -32,8 +32,8 @@ start_link(Config) ->
 %% Exported: init
 
 init(normal) ->
-    [ObscreteDir, PinSalt] =
-        config:lookup_children(['obscrete-dir', 'pin-salt'],
+    [MixmeshDir, PinSalt] =
+        config:lookup_children(['mixmesh-dir', 'pin-salt'],
                                config:lookup([system])),
     [Nym, Routing, SyncServer, SmtpServer, Pop3Server, HttpServer] =
         config:lookup_children(
@@ -46,7 +46,7 @@ init(normal) ->
                                 'secret-key'],
                                SyncServer),
     PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
-    PinFilename = filename:join([ObscreteDir, <<"pin">>]),
+    PinFilename = filename:join([MixmeshDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
     SharedKey = player_crypto:pin_to_shared_key(Pin, PinSalt),
     {ok, DecryptedSecretKey} =
@@ -81,7 +81,7 @@ init(normal) ->
                           PkiServerTcpAddress}}
                 end
         end,
-    PlayerDir = filename:join([ObscreteDir, Nym, <<"player">>]),
+    PlayerDir = filename:join([MixmeshDir, Nym, <<"player">>]),
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),

@@ -20,4 +20,4 @@ clean:
 ERLC_FLAGS=-I ../.. +debug_info -Ddebug
 
 runtest: all
-	../../obscrete/bin/run_test --config ../../obscrete/etc/obscrete.conf .
+	../../mixmesh/bin/run_test --config ../../mixmesh/etc/mixmesh.conf .
