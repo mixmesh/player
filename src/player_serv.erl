@@ -553,7 +553,7 @@ message_handler(
             case maps:get(NAddr, NeighbourMon, undefined) of
                 undefined ->
                     player_sync_serv:connect(
-                      Simulated, self(), RoutingInfo, NodisServPid, NAddr,
+                      Simulated, self(), NodisServPid, NAddr,
 		      #player_sync_serv_options{
 			 simulated = Simulated,
 			 sync_address = SyncAddress,

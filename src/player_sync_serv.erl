@@ -1,5 +1,5 @@
 -module(player_sync_serv).
--export([connect/6]).
+-export([connect/5]).
 -export([start_link/5, stop/1]).
 -export([message_handler/1]).
 
@@ -25,14 +25,14 @@
 
 %% Exported: connect
 
-connect(Simulated, PlayerServPid, RoutingInfo, NodisServPid, NAddr, Options) ->
+connect(Simulated, PlayerServPid, NodisServPid, NAddr, Options) ->
     Pid = proc_lib:spawn(
             fun() ->
-                    connect_now(Simulated, PlayerServPid, RoutingInfo,
+                    connect_now(Simulated, PlayerServPid,
                                 NodisServPid, NAddr, Options) end),
     {ok, Pid}.
 
-connect_now(Simulated, PlayerServPid, RoutingInfo, NodisServPid,
+connect_now(Simulated, PlayerServPid, NodisServPid,
 	    NAddr, #player_sync_serv_options{
 		      sync_address = SyncAddress,
 		      connect_timeout = ConnectTimeout} = Options) ->
@@ -44,26 +44,18 @@ connect_now(Simulated, PlayerServPid, RoutingInfo, NodisServPid,
 				 [{reuseaddr, true},
 				  {active, false},
 				  {nodelay, true},
+				  {sndbuf, ?SND_BUFFER_SIZE},
+				  {recbuf, ?REC_BUFFER_SIZE},
+				  {send_timeout, ?SEND_TIMEOUT},
 				  {port, SrcPort + 1},
 				  binary],
 				 ConnectTimeout) of
 		{ok, Socket} ->
 		    PlayerServPid ! {sync, self(), NAddr, {up, connect}},
-                    case connect_handshake(RoutingInfo, Socket) of
-                        {ok, NeighbourRoutingInfo} ->
-                            ok = inet:setopts(Socket, 
-                                              [{sndbuf, ?SND_BUFFER_SIZE},
-                                               {recbuf, ?REC_BUFFER_SIZE},
-                                               {send_timeout, ?SEND_TIMEOUT}]),
-                            sync_messages(Simulated, PlayerServPid,
-                                          NeighbourRoutingInfo, NodisServPid,
-                                          NAddr, Socket, Options);
-                        {error, closed} ->
-                            %% TONY: Should we die here? Probably not?
-                            ok;
-                        {error, Reason} ->
-                            ?error_log({connect_handshake, Reason})
-                    end;
+		    NeighbourRoutingInfo = get_routing_info(NodisServPid,NAddr),
+		    sync_messages(Simulated, PlayerServPid,
+				  NeighbourRoutingInfo, NodisServPid,
+				  NAddr, Socket, Options);
 		{error, eaddrinuse} ->
 		    io:format("gen_tcp:connect eaddrinuse\n"),
 		    ok;
@@ -72,20 +64,6 @@ connect_now(Simulated, PlayerServPid, RoutingInfo, NodisServPid,
 	    end;
 	false -> %% Probably connected already
 	    ?dbg_log_tag(sync, {nodis_connect_reject})
-    end.
-
-connect_handshake(RoutingInfo, Socket) ->
-    RoutingHeader = player_routing:info_to_header(RoutingInfo),
-    case gen_tcp:send(Socket, RoutingHeader) of
-	ok ->
-            case gen_tcp:recv(Socket, ?ROUTING_HEADER_SIZE) of
-                {ok, NeighbourRoutingHeader} ->
-                    {ok, player_routing:header_to_info(NeighbourRoutingHeader)};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 %% Exported: start_link
@@ -121,6 +99,9 @@ init(Parent, Nym, Port,
 	     end,
     LOptions = Family ++ [{reuseaddr, true},
 			  {ifaddr, IpAddress},
+			  {sndbuf, ?SND_BUFFER_SIZE},
+			  {recbuf, ?REC_BUFFER_SIZE},
+			  {send_timeout, ?SEND_TIMEOUT},
 			  {active, false},
 			  {nodelay, true},
 			  binary],
@@ -212,18 +193,9 @@ acceptor(Owner, Simulated, PlayerServPid, NodisServPid, Options,
 	true ->
 	    Owner ! accepted,
 	    PlayerServPid ! {sync, self(), NAddr, {up, accept}},
-            RoutingInfo = player_serv:get_routing_info(PlayerServPid),
-            case accept_handshake(RoutingInfo, Socket) of
-                {ok, NeighbourRoutingInfo} ->
-                    ok = inet:setopts(Socket, 
-                                      [{sndbuf, ?SND_BUFFER_SIZE},
-                                       {recbuf, ?REC_BUFFER_SIZE},
-                                       {send_timeout, ?SEND_TIMEOUT}]),
-                    sync_messages(Simulated, PlayerServPid, NeighbourRoutingInfo,
-                                  NodisServPid, NAddr, Socket, Options);
-                {error, Reason} ->
-                    ?error_log({accept_handshake, Reason})
-            end;
+	    NeighbourRoutingInfo = get_routing_info(NodisServPid, NAddr),
+	    sync_messages(Simulated, PlayerServPid, NeighbourRoutingInfo,
+			  NodisServPid, NAddr, Socket, Options);
 	false -> %% Maybe already connected or not up
 	    ?dbg_log_tag(sync, {nodis_accept_reject}),
 	    %% Try to close nicely
@@ -231,20 +203,6 @@ acceptor(Owner, Simulated, PlayerServPid, NodisServPid, Options,
 	    sync_recv(PlayerServPid, NAddr, Socket, 0, Options),
 	    acceptor(Owner, Simulated, PlayerServPid, NodisServPid, Options,
                      ListenSocket)
-    end.
-
-accept_handshake(RoutingInfo, Socket) ->
-    case gen_tcp:recv(Socket, ?ROUTING_HEADER_SIZE) of
-        {ok, NeighbourRoutingHeader} ->
-            RoutingHeader = player_routing:info_to_header(RoutingInfo),
-            case gen_tcp:send(Socket, RoutingHeader) of
-                ok ->
-                    {ok, player_routing:header_to_info(NeighbourRoutingHeader)};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 sync_messages(Simulated, PlayerServPid, NeighbourRoutingInfo, _NodisServPid,
@@ -384,4 +342,21 @@ sync_recv_(PlayerServPid, NAddr, Socket, N, I, Options) ->
 	    PlayerServPid ! {sync, self(), NAddr, {error, N, Reason}},
 	    gen_tcp:close(Socket),
 	    {error, N, Reason}
+    end.
+
+get_routing_info(NodisPid, NAddr) ->
+    case nodis:get_info(NodisPid, NAddr, [location,habitat]) of
+	[{location,undefined},{habitat,undefined}] ->
+	    #routing_info{ type = blind, data = none };
+	[{location,{Long,Lat}},{habitat,_Habitat}] ->
+	    #routing_info{ type = location,
+			   data = #location_routing{longitude=Long,
+						    latitude=Lat}};
+	[{location,undefined},{habitat,{{Long1,Lat1},{Long2,Lat2},_Radius}}] ->
+	    %% until we have habitat routing ready
+	    Long = (Long1+Long2)/2,
+	    Lat  = (Lat1+Lat2)/2,
+	    #routing_info{ type = location,
+			   data = #location_routing{longitude=Long,
+						    latitude=Lat}}
     end.
