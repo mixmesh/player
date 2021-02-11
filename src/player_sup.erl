@@ -32,6 +32,7 @@ start_link(Config) ->
 %% Exported: init
 
 init(normal) ->
+    Simulated = false,
     [MixmeshDir, PinSalt] =
         config:lookup_children(['mixmesh-dir', 'pin-salt'],
                                config:lookup([system])),
@@ -92,19 +93,23 @@ init(normal) ->
           start => {player_serv, start_link,
                     [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                      RoutingType, UseGps, Longitude, Latitude, Keys, not_set,
-                     PkiMode, _Simulated = false]}},
+                     PkiMode, Simulated]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Nym, SyncAddress, F, Keys, _Simulated = false]}},
+                    [Nym, SyncAddress, F, Keys, Simulated]}},
+    HabitatServSpec =
+        #{id => habitat_serv,
+          start => {habitat_serv, start_link,
+                    [Nym, Simulated]}},
     MaildropServSpec =
         #{id => maildrop_serv,
-          start => {maildrop_serv, start_link, [SpoolerDir, false]}},
+          start => {maildrop_serv, start_link, [SpoolerDir, Simulated]}},
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
                     [Nym, SmtpPasswordDigest, TempDir, CertFilename,
-                     SmtpAddress, _Simulated = false]}},
+                     SmtpAddress, Simulated]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
@@ -123,6 +128,7 @@ init(normal) ->
     {ok, {#{strategy => one_for_all},
           [PlayerServSpec,
            PlayerSyncServSpec,
+           HabitatServSpec,
            MaildropServSpec,
            SmtpServSpec,
            Pop3ServSpec] ++ RestServerSpecs ++
@@ -147,6 +153,7 @@ init(#simulated_player_serv_config{
         http_address = HttpAddress,
         http_password = HttpPassword,
         pki_mode = PkiMode}) ->
+    Simulated = true,
     PlayerDir = filename:join([PlayersDir, Nym, <<"player">>]),
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
@@ -158,19 +165,23 @@ init(#simulated_player_serv_config{
           start => {player_serv, start_link,
                     [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                      RoutingType, UseGps, Longitude, Latitude, Keys,
-                     GetLocationGenerator, PkiMode, true]}},
+                     GetLocationGenerator, PkiMode, Simulated]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
-                    [Nym, SyncAddress, F, Keys, _Simulated=true]}},
+                    [Nym, SyncAddress, F, Keys, Simulated]}},
+    HabitatServSpec =
+        #{id => habitat_serv,
+          start => {habitat_serv, start_link,
+                    [Nym, Simulated]}},
     MaildropServSpec =
         #{id => maildrop_serv,
-          start => {maildrop_serv, start_link, [SpoolerDir, true]}},
+          start => {maildrop_serv, start_link, [SpoolerDir, Simulated]}},
     SmtpServSpec =
         #{id => smtp_serv,
           start => {smtp_serv, start_link,
                     [Nym, SmtpPasswordDigest, TempDir, CertFilename,
-                     SmtpAddress, true]}},
+                     SmtpAddress, Simulated]}},
     Pop3ServSpec =
         #{id => pop3_serv,
           start => {pop3_serv, start_link,
@@ -187,7 +198,7 @@ init(#simulated_player_serv_config{
     NodisServSpec =
         #{id => nodis_serv,
           start => {nodis_serv, start_link,
-                    [#{simulation => true,
+                    [#{simulation => Simulated,
 		       mport => SyncPort,
 		       oport => SyncPort + 1}]}},
     LocalPkiServSpec =
@@ -197,6 +208,7 @@ init(#simulated_player_serv_config{
     {ok, {#{strategy => one_for_all},
           [PlayerServSpec,
            PlayerSyncServSpec,
+           HabitatServSpec,
            MaildropServSpec,
            SmtpServSpec,
            Pop3ServSpec] ++ RestServerSpecs ++

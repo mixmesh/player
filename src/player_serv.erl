@@ -56,6 +56,8 @@
          message_digests :: atom(),
          keys :: {#pk{}, #sk{}},
          reply_keys = not_set :: {#pk{}, #sk{}} | not_set,
+         simulated_longitude_topic :: binary() | not_set,
+         simulated_latitude_topic :: binary() | not_set,
          location_generator :: function(),
          use_gps :: boolean(),
          longitude = none :: float() | none,
@@ -250,8 +252,16 @@ init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
     {ok, BufferHandle} = player_buffer:new(BufferDir, BufferSize, Simulated),
     case Simulated of
         true ->
+            TopicPrefix =
+                ?l2b([<<"mixmesh.routing.simulated.">>, Nym, <<".location">>]),
+            SimulatedLongitudeTopic = ?l2b([TopicPrefix, <<".longitude">>]),
+            SimulatedLatitudeTopic = ?l2b([TopicPrefix, <<".latitude">>]),
+            true = xbus:pub_meta(SimulatedLongitudeTopic, [{unit, "degree"}]),
+            true = xbus:pub_meta(SimulatedLatitudeTopic, [{unit, "degree"}]),
             LocationGenerator = GetLocationGenerator();
         false ->
+            SimulatedLongitudeTopic = not_set,
+            SimulatedLatitudeTopic = not_set,
             LocationGenerator = not_set
     end,
     ok = config_serv:subscribe(),
@@ -273,6 +283,8 @@ init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                 buffer_handle = BufferHandle,
                 message_digests = MessageDigests,
                 keys = Keys,
+                simulated_longitude_topic = SimulatedLongitudeTopic,
+                simulated_latitude_topic = SimulatedLatitudeTopic,
                 location_generator = LocationGenerator,
                 use_gps = UseGps,
                 longitude = Longitude,
@@ -295,6 +307,8 @@ message_handler(
          buffer_handle = BufferHandle,
          message_digests = MessageDigests,
          keys = {_PublicKey, SecretKey} = Keys,
+         simulated_longitude_topic = SimulatedLongitudeTopic,
+         simulated_latitude_topic = SimulatedLatitudeTopic,
          location_generator = LocationGenerator,
          use_gps = _UseGps,
          longitude = Longitude,
@@ -662,7 +676,11 @@ message_handler(
                                      #db_player{
                                         nym = Nym,
                                         x = NextLongitude,
-                                        y = NextLatitude});
+                                        y = NextLatitude}),
+                            true = xbus:pub(
+                                     SimulatedLongitudeTopic, NextLongitude),
+                            true = xbus:pub(
+                                     SimulatedLatitudeTopic, NextLatitude);
                         false ->
                             true
                     end,
