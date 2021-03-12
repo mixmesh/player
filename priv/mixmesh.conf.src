@@ -2,7 +2,8 @@
     "system": {
         "initialization-time": @@INITIALIZATION-TIME@@,
         "mixmesh-dir": "@@MIXMESH-DIR@@",
-        "pin-salt": "@@PIN-SALT@@"
+        "pin-salt": "@@PIN-SALT@@",
+        "hardware": "none"
     },
     "nodis": {
         "ping-delay": 1000,
