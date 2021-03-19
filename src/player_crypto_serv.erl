@@ -47,17 +47,20 @@
 %%
 %% INPUT
 %%
-%% "mixmesh.keypad.hkey" <digest>
-%%   Each key is encoded and hashed from keyboard to 
+%% "mixmesh.pincode.hdigit" <digest>
+%%   Each digit is encoded and hashed from keyboard to 
 %%   any one listening (owning the shared decode key) then the
 %%   digit is decoded and used in the pincode 
 %%
+%% "mixmesh.pincode.digit" <digit>
+%%   Testing only
+%%
 %% OUTPUT
 %%
-%% "mixmesh.keypad.locked" <boolean>
+%% "mixmesh.pincode.locked" <boolean>
 %%   Set when a matching pin code can unlock the secret key
 %%
-%% "mixmesh.keypad.backoff" <boolean>
+%% "mixmesh.pincode.backoff" <boolean>
 %%   Set when wrong pin code was entered, kind off exponential style
 %%   back-off
 %%
@@ -92,10 +95,16 @@ init(Parent,
     ets:insert(Store, {shared, SharedDecodeKey}),
     ets:insert(Store, {session, SessionDecodeKey}),
     ets:insert(Store, {session0, SessionDecodeKey}),
+    ets:insert(Store, {key, <<>>}),
     ets:insert(Store, {pin, "000000"}),
-    xbus:sub(<<"mixmesh.keypad.hkey">>),
-    xbus:pub(<<"mixmesh.keypad.backoff">>, false),
-    xbus:pub(<<"mixmesh.keypad.locked">>, true),
+    xbus:pub_meta(<<"mixmesh.pincode.hdigit">>, [{unit, "binary"}]),
+    xbus:pub_meta(<<"mixmesh.pincode.digit">>, [{unit, "char"}]),
+    xbus:pub_meta(<<"mixmesh.pincode.backoff">>, [{unit, "boolean"}]),
+    xbus:pub_meta(<<"mixmesh.pincode.locked">>, [{unit, "boolean"}]),
+    xbus:pub(<<"mixmesh.pincode.backoff">>, false),
+    xbus:pub(<<"mixmesh.pincode.locked">>, true),
+    xbus:sub(<<"mixmesh.pincode.digit">>), %% TESTING
+    xbus:sub(<<"mixmesh.pincode.hdigit">>),
     {ok, #state{parent = Parent,
                 store  = Store,
 		pinsalt   = PinSalt,
@@ -109,10 +118,11 @@ message_handler(State) ->
 
         {call, From, lock} ->
 	    ets:insert(State#state.store, {key, <<>>}),
-	    xbus:pub(<<"mixmesh.keypad.locked">>, true),
+	    xbus:pub(<<"mixmesh.pincode.locked">>, true),
 	    {reply, From, ok, State#state { count = 0, locked = true }};
 
 	{call, From, {decrypt, Message}} ->
+	    %% FIXME: add counter for activity and stats
 	    if State#state.locked ->
 		    {reply, From, {error,locked}};
 	       true ->
@@ -126,6 +136,7 @@ message_handler(State) ->
 	    end;
 	
 	{call, From, {encrypt, Message, PublicKey}} ->
+	    %% FIXME: add counter for activity and stats
 	    if State#state.locked ->
 		    {reply, From, {error,locked}};
 	       true ->
@@ -134,11 +145,15 @@ message_handler(State) ->
 		    {reply, From, {ok,Reply}}
 	    end;
 	    
-	{xbus, <<"mixmesh.keypad.hkey">>, #{ value := SHi }} ->
+	{xbus, <<"mixmesh.pincode.hdigit">>, #{ value := SHi }} ->
 	    {noreply, handle_key(SHi, State)};
 
+	%% ONLY TESTING - REMOVE ME 
+	{xbus, <<"mixmesh.pincode.digit">>, #{ value := D }} ->
+	    {noreply, handle_digit(D, State)};
+
 	{timeout, Ref, backoff_done} when State#state.backoff_tmr =:= Ref ->
-	    xbus:pub(<<"mixmesh.keypad.backoff">>, false),
+	    xbus:pub(<<"mixmesh.pincode.backoff">>, false),
 	    {noreply, State#state { backoff = false, backoff_tmr = undefined }};
 
         {system, From, Request} ->
@@ -168,31 +183,32 @@ handle_key(SHi, State=#state{ store = Store }) ->
 	{true,D} ->
 	    H1 = crypto:hash(?HASH_ALG, [H0,D]),
 	    ets:insert(Store, {session,H1}),
-	    if not State#state.locked; State#state.backoff ->
-		    State;
-	       true ->
-		    handle_digit(D, State)
-	    end
+	    handle_digit(D, State)
     end.
 
-handle_digit(D, State = #state { store = Store} ) ->
+handle_digit(D, State = #state { store = Store} ) when
+      State#state.locked, not State#state.backoff ->
     [{pin,Pin0}] = ets:lookup(Store, pin),
     {_, Pin1} = lists:split(1, Pin0),
     Pin = Pin1++[D],
     ets:insert(Store, {pin,Pin}),
     Count1 = State#state.count + 1,
+    io:format("Pin: ~p\n", [Pin]),
     if Count1 >= 6 ->
 	    %% FIXME allow 6 digits more before backoff!
 	    case try_unlock(Pin, State) of
 		{ok,DecryptedSecretKey} ->
+		    io:format("Unlocked\n", []),
 		    ets:insert(Store, {key, DecryptedSecretKey}),
-		    xbus:pub(<<"mixmesh.keypad.locked">>, false),
+		    xbus:pub(<<"mixmesh.pincode.locked">>, false),
 		    State#state { attempts = 0, count = 0, locked = false };
 		_ ->
 		    ets:insert(Store, {key, <<>>}),
-		    xbus:pub(<<"mixmesh.keypad.backoff">>, true),
+		    xbus:pub(<<"mixmesh.pincode.backoff">>, true),
 		    Attempts = State#state.attempts + 1,
 		    BackoffTime = backoff_ms(Attempts),
+		    io:format("Unlock fail attempts=~w, backoff=~ws\n", 
+			      [Attempts, BackoffTime div 1000]),
 		    Tmr = erlang:start_timer(BackoffTime, self(), backoff_done),
 		    State#state { count = 0,  %% rolling?? or enter key?
 				  locked = true,
@@ -202,7 +218,9 @@ handle_digit(D, State = #state { store = Store} ) ->
 	    end;
        true ->
 	    State#state { count = Count1 }
-    end.
+    end;
+handle_digit(_D, State) ->
+    State.
 
 try_unlock(Pin, State) ->
     SharedKey = player_crypto:pin_to_shared_key(Pin, State#state.pinsalt),

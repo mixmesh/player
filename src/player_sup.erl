@@ -88,6 +88,13 @@ init(normal) ->
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
     LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
     CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
+    SharedDecodeKey = crypto:strong_rand_bytes(16),
+    SessionDecodeKey = crypto:strong_rand_bytes(16),
+    PlayerCryptoSpec =
+	#{id => player_crypto_serv,
+          start => {player_crypto_serv, start_link, 
+		    [PinSalt, EncryptedSecretKey, 
+		     SharedDecodeKey, SessionDecodeKey]}},
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
@@ -126,7 +133,8 @@ init(normal) ->
         #{id => pki_serv,
           start => {local_pki_serv, start_link, [LocalPkiDir]}},
     {ok, {#{strategy => one_for_all},
-          [PlayerServSpec,
+          [PlayerCryptoSpec,
+	   PlayerServSpec,
            PlayerSyncServSpec,
            HabitatServSpec,
            MaildropServSpec,
