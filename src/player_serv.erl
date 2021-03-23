@@ -39,7 +39,7 @@
                       {message_not_in_buffer |
                        message_in_buffer, message_id()}} |
                      is_nothing.
--type pki_mode() :: local | {global, binary(), pki_network_client:pki_access()}.
+-type pki_mode() :: local | {remote, binary(), pki_network_client:pki_access()}.
 
 -record(state,
         {parent :: pid(),
@@ -744,7 +744,7 @@ update_neighbours(false, _Nym, _Ns) ->
                        {up, connect|accept|false}}) ->
 	  [{string(), nodis:state(), connect | accept | false}].
 
-%% FIXME: keep nodis-address -> nym in a global state fro speed
+%% FIXME: keep nodis-address -> nym in a global state for speed
 get_neighbours(Ns) when is_map(Ns) ->
     get_neighbours_(maps:to_list(Ns), [], []).
 
@@ -778,7 +778,7 @@ res_neighbours([], [], [], Acc) ->
 
 read_public_key(PkiServPid, local, Nym) ->
     local_pki_serv:read(PkiServPid, Nym);
-read_public_key(_PkiServPid, {global, _PkiPassword, PkiAccess}, Nym) ->
+read_public_key(_PkiServPid, {remote, _PkiPassword, PkiAccess}, Nym) ->
     case pki_network_client:read(
            Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
@@ -803,13 +803,13 @@ publish_public_key(PkiServPid, local, Nym, PublicKey) ->
                system, "Created an entry in the local PKI server", []),
             ok
     end;
-publish_public_key(PkiServPid, {global, PkiPassword, PkiAccess} = PkiMode, Nym,
+publish_public_key(PkiServPid, {remote, PkiPassword, PkiAccess} = PkiMode, Nym,
                    PublicKey) ->
     case pki_network_client:read(
            Nym, #pki_network_client_options{pki_access = PkiAccess},
            ?PKI_NETWORK_TIMEOUT) of
         {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_log_tag_fmt(system, "Global PKI server is in sync", []),
+            ?daemon_log_tag_fmt(system, "Remote PKI server is in sync", []),
             ok;
         {ok, PkiUser} ->
             case pki_network_client:update(
@@ -819,12 +819,12 @@ publish_public_key(PkiServPid, {global, PkiPassword, PkiAccess} = PkiMode, Nym,
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_log_tag_fmt(
-                       system, "Updated the global PKI server", []),
+                       system, "Updated the remote PKI server", []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not update the global PKI server (~p). Will try again in ~w seconds.",
+                       "Could not update the remote PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
                     publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
@@ -838,12 +838,12 @@ publish_public_key(PkiServPid, {global, PkiPassword, PkiAccess} = PkiMode, Nym,
                    ?PKI_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_log_tag_fmt(
-                       system, "Created an entry in the global PKI server", []),
+                       system, "Created an entry in the remote PKI server", []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not create an entry in the global PKI server (~p). Will try again in ~w seconds.",
+                       "Could not create an entry in the remote PKI server (~p). Will try again in ~w seconds.",
                        [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
                     timer:sleep(?PKI_PUSHBACK_TIME),
                     publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
@@ -851,7 +851,7 @@ publish_public_key(PkiServPid, {global, PkiPassword, PkiAccess} = PkiMode, Nym,
         {error, Reason} ->
             ?daemon_log_tag_fmt(
                system,
-               "Could not contact the global PKI server (~p). Will try again in ~w seconds.",
+               "Could not contact the remote PKI server (~p). Will try again in ~w seconds.",
                [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
             timer:sleep(?PKI_PUSHBACK_TIME),
             publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)

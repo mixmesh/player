@@ -114,17 +114,17 @@ get() ->
         [{mode,
           #json_type{
              name = atom,
-             info = "global or local",
+             info = "remote or local",
              typical = local,
              transform =
-                 fun(global) -> global;
+                 fun(remote) -> remote;
                     (local) -> local;
                     (_) ->
                          throw({failed,
-                                <<"Must be one of global or local">>})
+                                <<"Must be one of remote or local">>})
                  end,
              reloadable = false}},
-         {global,
+         {remote,
           [{'password',
             #json_type{
                name = string,

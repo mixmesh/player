@@ -64,20 +64,20 @@ init(normal) ->
         case config:lookup([player, 'pki-access-settings', mode]) of
             local ->
                 local;
-            global ->
+            remote ->
                 [PkiPassword, PkiAccess, PkiServerTorAddress,
                  PkiServerTcpAddress] =
                     config:lookup_children(
                       [password, access, 'pki-server-tor-address',
                        'pki-server-tcp-address'],
-                      config:lookup([player, 'pki-access-settings', global])),
+                      config:lookup([player, 'pki-access-settings', remote])),
                 case PkiAccess of
                     tor_only ->
-                        {global, PkiPassword, {tor_only, PkiServerTorAddress}};
+                        {remote, PkiPassword, {tor_only, PkiServerTorAddress}};
                     tcp_only ->
-                        {global, PkiPassword, {tcp_only, PkiServerTcpAddress}};
+                        {remote, PkiPassword, {tcp_only, PkiServerTcpAddress}};
                     tor_fallback_to_tcp ->
-                        {global, PkiPassword,
+                        {remote, PkiPassword,
                          {tor_fallback_to_tcp, PkiServerTorAddress,
                           PkiServerTcpAddress}}
                 end
