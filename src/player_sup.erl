@@ -60,33 +60,33 @@ init(normal) ->
         config:lookup_children([address, 'password-digest'], Pop3Server),
     [HttpAddress, HttpPassword] =
         config:lookup_children([address, password], HttpServer),
-    PkiMode =
-        case config:lookup([player, 'pki-access-settings', mode]) of
+    KeydirMode =
+        case config:lookup([player, 'keydir-access-settings', mode]) of
             local ->
                 local;
             remote ->
-                [PkiPassword, PkiAccess, PkiServerTorAddress,
-                 PkiServerTcpAddress] =
+                [KeydirPassword, KeydirAccess, KeydirServerTorAddress,
+                 KeydirServerTcpAddress] =
                     config:lookup_children(
-                      [password, access, 'pki-server-tor-address',
-                       'pki-server-tcp-address'],
-                      config:lookup([player, 'pki-access-settings', remote])),
-                case PkiAccess of
+                      [password, access, 'keydir-server-tor-address',
+                       'keydir-server-tcp-address'],
+                      config:lookup([player, 'keydir-access-settings', remote])),
+                case KeydirAccess of
                     tor_only ->
-                        {remote, PkiPassword, {tor_only, PkiServerTorAddress}};
+                        {remote, KeydirPassword, {tor_only, KeydirServerTorAddress}};
                     tcp_only ->
-                        {remote, PkiPassword, {tcp_only, PkiServerTcpAddress}};
+                        {remote, KeydirPassword, {tcp_only, KeydirServerTcpAddress}};
                     tor_fallback_to_tcp ->
-                        {remote, PkiPassword,
-                         {tor_fallback_to_tcp, PkiServerTorAddress,
-                          PkiServerTcpAddress}}
+                        {remote, KeydirPassword,
+                         {tor_fallback_to_tcp, KeydirServerTorAddress,
+                          KeydirServerTcpAddress}}
                 end
         end,
     PlayerDir = filename:join([MixmeshDir, Nym, <<"player">>]),
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
-    LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
+    LocalKeydirDir = filename:join([PlayerDir, <<"local-keydir">>]),
     CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     SharedDecodeKey = crypto:strong_rand_bytes(16),
     SessionDecodeKey = crypto:strong_rand_bytes(16),
@@ -100,7 +100,7 @@ init(normal) ->
           start => {player_serv, start_link,
                     [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                      RoutingType, UseGps, Longitude, Latitude, Keys, not_set,
-                     PkiMode, Simulated]}},
+                     KeydirMode, Simulated]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -129,9 +129,9 @@ init(normal) ->
                                       [Nym, HttpPassword, TempDir, CertFilename,
                                        {IpAddress, Port}]}}
                   end, HttpAddress),
-    LocalPkiServSpec =
-        #{id => pki_serv,
-          start => {local_pki_serv, start_link, [LocalPkiDir]}},
+    LocalKeydirServSpec =
+        #{id => keydir_serv,
+          start => {local_keydir_serv, start_link, [LocalKeydirDir]}},
     {ok, {#{strategy => one_for_all},
           [PlayerCryptoSpec,
 	   PlayerServSpec,
@@ -140,7 +140,7 @@ init(normal) ->
            MaildropServSpec,
            SmtpServSpec,
            Pop3ServSpec] ++ RestServerSpecs ++
-              [LocalPkiServSpec]}};
+              [LocalKeydirServSpec]}};
 init(#simulated_player_serv_config{
         players_dir = PlayersDir,
         nym = Nym,
@@ -160,20 +160,20 @@ init(#simulated_player_serv_config{
         pop3_password_digest = Pop3PasswordDigest,
         http_address = HttpAddress,
         http_password = HttpPassword,
-        pki_mode = PkiMode}) ->
+        keydir_mode = KeydirMode}) ->
     Simulated = true,
     PlayerDir = filename:join([PlayersDir, Nym, <<"player">>]),
     TempDir = filename:join([PlayerDir, <<"temp">>]),
     BufferDir = filename:join([PlayerDir, <<"buffer">>]),
     SpoolerDir = filename:join([PlayerDir, <<"spooler">>]),
-    LocalPkiDir = filename:join([PlayerDir, <<"local-pki">>]),
+    LocalKeydirDir = filename:join([PlayerDir, <<"local-keydir">>]),
     CertFilename = filename:join([PlayerDir, <<"ssl">>, <<"cert.pem">>]),
     PlayerServSpec =
         #{id => player_serv,
           start => {player_serv, start_link,
                     [Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                      RoutingType, UseGps, Longitude, Latitude, Keys,
-                     GetLocationGenerator, PkiMode, Simulated]}},
+                     GetLocationGenerator, KeydirMode, Simulated]}},
     PlayerSyncServSpec =
         #{id => player_sync_serv,
           start => {player_sync_serv, start_link,
@@ -209,10 +209,10 @@ init(#simulated_player_serv_config{
                     [#{simulation => Simulated,
 		       mport => SyncPort,
 		       oport => SyncPort + 1}]}},
-    LocalPkiServSpec =
-        #{id => pki_serv,
-          start => {local_pki_serv, start_link,
-                    [LocalPkiDir]}},
+    LocalKeydirServSpec =
+        #{id => keydir_serv,
+          start => {local_keydir_serv, start_link,
+                    [LocalKeydirDir]}},
     {ok, {#{strategy => one_for_all},
           [PlayerServSpec,
            PlayerSyncServSpec,
@@ -221,4 +221,4 @@ init(#simulated_player_serv_config{
            SmtpServSpec,
            Pop3ServSpec] ++ RestServerSpecs ++
               [NodisServSpec,
-               LocalPkiServSpec]}}.
+               LocalKeydirServSpec]}}.

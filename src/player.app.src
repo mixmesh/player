@@ -5,4 +5,4 @@
   {modules, ["@@MODULES@@"]},
   {registered, []},
   {mod, {player_app, []}},
-  {applications, [kernel, stdlib, sasl, pki, mail]}]}.
+  {applications, [kernel, stdlib, sasl, keydir, mail]}]}.

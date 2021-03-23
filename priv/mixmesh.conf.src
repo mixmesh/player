@@ -15,11 +15,11 @@
 	"max-wait-nodes": 1000,
 	"max-down-nodes": 2000
     },
-    "remote-pki-server": {
+    "remote-keydir-server": {
         "enabled": false,
         "address": "0.0.0.0:11112",
         "timeout": 30000,
-        "data-dir": "@@MIXMESH-DIR@@/remote-pki",
+        "data-dir": "@@MIXMESH-DIR@@/remote-keydir",
         "webkey-service": {
           "enabled": true,
           "address": "0.0.0.0:4434"
@@ -54,13 +54,13 @@
             "address": ["usb0:@@HTTP-PORT@@", "pan0:@@HTTP-PORT@@"],
             "password": "@@HTTP-PASSWORD@@"
         },
-        "pki-access-settings": {
+        "keydir-access-settings": {
             "mode": "local",
             "remote": {
                 "password": "baz",
                 "access": "tcp-only",
-                "pki-server-tor-address": "z2rev4qfooicn3z3.onion:11112",
-                "pki-server-tcp-address": "127.0.0.1:11112"
+                "keydir-server-tor-address": "z2rev4qfooicn3z3.onion:11112",
+                "keydir-server-tcp-address": "127.0.0.1:11112"
             }
         }
     },

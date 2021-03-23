@@ -20,15 +20,15 @@
 -include_lib("apptools/include/serv.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
--include_lib("pki/include/pki_serv.hrl").
--include_lib("pki/include/pki_network_client.hrl").
+-include_lib("keydir/include/keydir_serv.hrl").
+-include_lib("keydir/include/keydir_network_client.hrl").
 -include("../include/player_serv.hrl").
 -include("../include/player_sync_serv.hrl").
 -include("../include/player_buffer.hrl").
 -include("player_routing.hrl").
 
--define(PKI_PUSHBACK_TIME, 10000).
--define(PKI_NETWORK_TIMEOUT, 20000).
+-define(KEYDIR_PUSHBACK_TIME, 10000).
+-define(KEYDIR_NETWORK_TIMEOUT, 20000).
 
 -define(STORED_MESSAGE_DIGESTS, 10000).
 
@@ -39,13 +39,14 @@
                       {message_not_in_buffer |
                        message_in_buffer, message_id()}} |
                      is_nothing.
--type pki_mode() :: local | {remote, binary(), pki_network_client:pki_access()}.
+-type keydir_mode() ::
+        local | {remote, binary(), keydir_network_client:keydir_access()}.
 
 -record(state,
         {parent :: pid(),
          nym :: binary(),
          maildrop_serv_pid = not_set :: pid() | not_set,
-         pki_serv_pid = not_set :: pid() | not_set,
+         keydir_serv_pid = not_set :: pid() | not_set,
          sync_address :: {inet:ip_address(), inet:port_number()},
          buffer_size :: integer(),
          f :: number(),
@@ -72,7 +73,7 @@
          picked_as_source = false :: boolean(),
          pick_mode = is_nothing :: pick_mode(),
          meters_moved = 0 :: integer(),
-         pki_mode :: pki_mode(),
+         keydir_mode :: keydir_mode(),
          simulated :: boolean(),
 	 nodis_serv_pid :: pid() | undefined,
          nodis_subscription :: reference() | undefined,
@@ -85,44 +86,45 @@
 -spec start_link(binary(), {inet:ip_address(), inet:port_number()}, integer(),
                  number(), number(), binary(), binary(),
                  player_routing:routing_type(), boolean(), float(), float(),
-                 {#pk{}, #sk{}}, function() | not_set, pki_mode(), boolean()) ->
+                 {#pk{}, #sk{}}, function() | not_set, keydir_mode(),
+                 boolean()) ->
           serv:spawn_server_result().
 
 start_link(Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir, RoutingType,
-           UseGps, Longitude, Latitude, Keys, GetLocationGenerator, PkiMode,
+           UseGps, Longitude, Latitude, Keys, GetLocationGenerator, KeydirMode,
            Simulated) ->
     ?spawn_server(
        fun(Parent) ->
                init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir,
                     BufferDir, RoutingType, UseGps, Longitude, Latitude, Keys,
-                    GetLocationGenerator, PkiMode, Simulated)
+                    GetLocationGenerator, KeydirMode, Simulated)
        end,
        fun initial_message_handler/1).
 
 initial_message_handler(#state{nym = Nym,
                                keys = {PublicKey, _SecretKey},
-                               pki_mode = PkiMode,
+                               keydir_mode = KeydirMode,
                                simulated = Simulated} = State) ->
     receive
         {neighbour_workers, NeighbourWorkers} ->
             case Simulated of
                 true ->
-                    [MaildropServPid, NodisServPid, PkiServPid] =
+                    [MaildropServPid, NodisServPid, KeydirServPid] =
                         supervisor_helper:get_selected_worker_pids(
-                          [maildrop_serv, nodis_serv, pki_serv],
+                          [maildrop_serv, nodis_serv, keydir_serv],
                           NeighbourWorkers);
                 false->
-                    [MaildropServPid, PkiServPid] =
+                    [MaildropServPid, KeydirServPid] =
                         supervisor_helper:get_selected_worker_pids(
-                          [maildrop_serv, pki_serv],
+                          [maildrop_serv, keydir_serv],
                           NeighbourWorkers),
                     NodisServPid = whereis(nodis_serv)
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
-            ok = publish_public_key(PkiServPid, PkiMode, Nym, PublicKey),
+            ok = publish_public_key(KeydirServPid, KeydirMode, Nym, PublicKey),
             {swap_message_handler, fun ?MODULE:message_handler/1,
              State#state{maildrop_serv_pid = MaildropServPid,
-                         pki_serv_pid = PkiServPid,
+                         keydir_serv_pid = KeydirServPid,
 			 nodis_serv_pid = NodisServPid,
                          nodis_subscription = NodisSubscription}}
     end.
@@ -247,7 +249,7 @@ get_routing_info(Pid) ->
 
 init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
      RoutingType, UseGps, Longitude, Latitude, Keys, GetLocationGenerator,
-     PkiMode, Simulated) ->
+     KeydirMode, Simulated) ->
     rand:seed(exsss),
     {ok, BufferHandle} = player_buffer:new(BufferDir, BufferSize, Simulated),
     case Simulated of
@@ -290,14 +292,14 @@ init(Parent, Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir,
                 longitude = Longitude,
                 latitude = Latitude,
                 routing_info = #routing_info{type = RoutingType},
-                pki_mode = PkiMode,
+                keydir_mode = KeydirMode,
                 simulated = Simulated}}.
 
 message_handler(
   #state{parent = Parent,
          nym = Nym,
          maildrop_serv_pid = MaildropServPid,
-         pki_serv_pid = PkiServPid,
+         keydir_serv_pid = KeydirServPid,
          sync_address = SyncAddress,
          buffer_size = _BufferSize,
          f = F,
@@ -320,7 +322,7 @@ message_handler(
          picked_as_source = _PickedAsSource,
          pick_mode = PickMode,
          meters_moved = MetersMoved,
-         pki_mode = PkiMode,
+         keydir_mode = KeydirMode,
          simulated = Simulated,
 	 nodis_serv_pid = NodisServPid,
          nodis_subscription = NodisSubscription,
@@ -422,11 +424,12 @@ message_handler(
                    MessageDigests, DigestedDecryptedData) of
                 false ->
                     Verified =
-			case read_public_key(PkiServPid, PkiMode, SenderNym) of
+			case read_public_key(KeydirServPid, KeydirMode,
+                                             SenderNym) of
 			    {ok, SenderPublicKey} ->
                                 elgamal:verify(Signature, DecryptedData,
                                                SenderPublicKey);
-                        {error, _Reason} ->
+                            {error, _Reason} ->
 				false
 			end,
                     TempFilename = mail_util:mktemp(TempDir),
@@ -497,7 +500,7 @@ message_handler(
         {cast, pick_as_source} ->
             {noreply, State#state{picked_as_source = true}};
         {call, From, {send_message, RecipientNym, Payload}} ->
-            case read_public_key(PkiServPid, PkiMode, RecipientNym) of
+            case read_public_key(KeydirServPid, KeydirMode, RecipientNym) of
                 {ok, RecipientPublicKey} ->
                     EncryptedData =
                         elgamal:uencrypt(Payload, RecipientPublicKey,
@@ -627,15 +630,8 @@ message_handler(
 	    if  Reason =:= normal -> ok;
 		Reason =:= killed -> ok;  %% we killed the sync pid
 		true ->
-                    %% TONY: Jag tror detta beror på att player_server_sync.erl
-                    %% dör på fel sätt.
-                    %% Sök efter "%% TONY: Should we die here? Probably not?" i
-                    %% player_sync_serv.erl
-                    %% FIXME: Removing this printout for now!
-                    %%        Just to silence it
-%		    io:format("sync? process ~w down reason=~p\n", 
-%			      [SyncPid, Reason])
-                    ok
+                    io:format("sync? process ~w down reason=~p\n", 
+			      [SyncPid, Reason])
 	    end,
             NeighbourMon1 = 
 		case maps:get(Mon, NeighbourMon, undefined) of
@@ -773,86 +769,90 @@ res_neighbours([], [], [], Acc) ->
     Acc.
 
 %%
-%% PKI access functions
+%% Keydir access functions
 %%
 
-read_public_key(PkiServPid, local, Nym) ->
-    local_pki_serv:read(PkiServPid, Nym);
-read_public_key(_PkiServPid, {remote, _PkiPassword, PkiAccess}, Nym) ->
-    case pki_network_client:read(
-           Nym, #pki_network_client_options{pki_access = PkiAccess},
-           ?PKI_NETWORK_TIMEOUT) of
-        {ok, #pki_user{public_key = PublicKey}} ->
+read_public_key(KeydirServPid, local, Nym) ->
+    local_keydir_serv:read(KeydirServPid, Nym);
+read_public_key(_KeydirServPid, {remote, _KeydirPassword, KeydirAccess}, Nym) ->
+    case keydir_network_client:read(
+           Nym, #keydir_network_client_options{keydir_access = KeydirAccess},
+           ?KEYDIR_NETWORK_TIMEOUT) of
+        {ok, #keydir_user{public_key = PublicKey}} ->
             {ok, PublicKey};
         {error, Reason} ->
             {error, Reason}
     end.
 
-publish_public_key(PkiServPid, local, Nym, PublicKey) ->
-    case local_pki_serv:read(PkiServPid, Nym) of
+publish_public_key(KeydirServPid, local, Nym, PublicKey) ->
+    case local_keydir_serv:read(KeydirServPid, Nym) of
         {ok, PublicKey} ->
-            ?daemon_log_tag_fmt(system, "Local PKI server is in sync", []),
+            ?daemon_log_tag_fmt(system, "Local Keydir server is in sync", []),
             ok;
         {ok, NewPublicKey} ->
-            ok = local_pki_serv:update(PkiServPid, NewPublicKey),
-            ?daemon_log_tag_fmt(system, "Updated the local PKI server", []),
+            ok = local_keydir_serv:update(KeydirServPid, NewPublicKey),
+            ?daemon_log_tag_fmt(system, "Updated the local Keydir server", []),
             ok;
         {error, no_such_key} ->
-            ok = local_pki_serv:create(PkiServPid, PublicKey),
+            ok = local_keydir_serv:create(KeydirServPid, PublicKey),
             ?daemon_log_tag_fmt(
-               system, "Created an entry in the local PKI server", []),
+               system, "Created an entry in the local Keydir server", []),
             ok
     end;
-publish_public_key(PkiServPid, {remote, PkiPassword, PkiAccess} = PkiMode, Nym,
+publish_public_key(KeydirServPid,
+                   {remote, KeydirPassword, KeydirAccess} = KeydirMode, Nym,
                    PublicKey) ->
-    case pki_network_client:read(
-           Nym, #pki_network_client_options{pki_access = PkiAccess},
-           ?PKI_NETWORK_TIMEOUT) of
-        {ok, #pki_user{public_key = PublicKey}} ->
-            ?daemon_log_tag_fmt(system, "Remote PKI server is in sync", []),
+    case keydir_network_client:read(
+           Nym, #keydir_network_client_options{keydir_access = KeydirAccess},
+           ?KEYDIR_NETWORK_TIMEOUT) of
+        {ok, #keydir_user{public_key = PublicKey}} ->
+            ?daemon_log_tag_fmt(system, "Remote Keydir server is in sync", []),
             ok;
-        {ok, PkiUser} ->
-            case pki_network_client:update(
-                   PkiUser#pki_user{password = PkiPassword,
-                                    public_key = PublicKey},
-                   #pki_network_client_options{pki_access = PkiAccess},
-                   ?PKI_NETWORK_TIMEOUT) of
+        {ok, KeydirUser} ->
+            case keydir_network_client:update(
+                   KeydirUser#keydir_user{password = KeydirPassword,
+                                          public_key = PublicKey},
+                   #keydir_network_client_options{keydir_access = KeydirAccess},
+                   ?KEYDIR_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_log_tag_fmt(
-                       system, "Updated the remote PKI server", []),
+                       system, "Updated the remote Keydir server", []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not update the remote PKI server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
+                       "Could not update the remote Keydir server (~p). Will try again in ~w seconds.",
+                       [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
+                    timer:sleep(?KEYDIR_PUSHBACK_TIME),
+                    publish_public_key(KeydirServPid, KeydirMode, Nym,
+                                       PublicKey)
             end;
         {error, <<"No such user">>} ->
-            case pki_network_client:create(
-                   #pki_user{nym = Nym,
-                             password = PkiPassword,
-                             public_key = PublicKey},
-                   #pki_network_client_options{pki_access = PkiAccess},
-                   ?PKI_NETWORK_TIMEOUT) of
+            case keydir_network_client:create(
+                   #keydir_user{nym = Nym,
+                                password = KeydirPassword,
+                                public_key = PublicKey},
+                   #keydir_network_client_options{keydir_access = KeydirAccess},
+                   ?KEYDIR_NETWORK_TIMEOUT) of
                 ok ->
                     ?daemon_log_tag_fmt(
-                       system, "Created an entry in the remote PKI server", []),
+                       system, "Created an entry in the remote Keydir server",
+                       []),
                     ok;
                 {error, Reason} ->
                     ?daemon_log_tag_fmt(
                        system,
-                       "Could not create an entry in the remote PKI server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?PKI_PUSHBACK_TIME),
-                    publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
+                       "Could not create an entry in the remote Keydir server (~p). Will try again in ~w seconds.",
+                       [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
+                    timer:sleep(?KEYDIR_PUSHBACK_TIME),
+                    publish_public_key(KeydirServPid, KeydirMode, Nym,
+                                       PublicKey)
             end;
         {error, Reason} ->
             ?daemon_log_tag_fmt(
                system,
-               "Could not contact the remote PKI server (~p). Will try again in ~w seconds.",
-               [Reason, trunc(?PKI_PUSHBACK_TIME / 1000)]),
-            timer:sleep(?PKI_PUSHBACK_TIME),
-            publish_public_key(PkiServPid, PkiMode, Nym, PublicKey)
+               "Could not contact the remote Keydir server (~p). Will try again in ~w seconds.",
+               [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
+            timer:sleep(?KEYDIR_PUSHBACK_TIME),
+            publish_public_key(KeydirServPid, KeydirMode, Nym, PublicKey)
     end.

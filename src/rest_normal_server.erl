@@ -8,7 +8,7 @@
 -include_lib("rester/include/rester.hrl").
 -include_lib("rester/include/rester_http.hrl").
 -include_lib("apptools/include/config_schema.hrl").
--include_lib("pki/include/pki_serv.hrl").
+-include_lib("keydir/include/keydir_serv.hrl").
 
 -define(IDLE_TIMEOUT, infinity). %% 60 * 1000).
 -define(SEND_TIMEOUT, infinity). %% default send timeout
@@ -112,8 +112,8 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
                 end,
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key"] ->
-            [PkiServPid] = get_worker_pids([pki_serv], Options),
-            {ok, PublicKeys} = local_pki_serv:list(PkiServPid, all, 100),
+            [KeydirServPid] = get_worker_pids([keydir_serv], Options),
+            {ok, PublicKeys} = local_keydir_serv:list(KeydirServPid, all, 100),
             JsonTerm =
                 lists:map(
                   fun(PublicKey) ->
@@ -124,9 +124,9 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
                   end, PublicKeys),
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key", Nym] ->
-            [PkiServPid] = get_worker_pids([pki_serv], Options),
+            [KeydirServPid] = get_worker_pids([keydir_serv], Options),
             NymBin = ?l2b(Nym),
-            case local_pki_serv:read(PkiServPid, NymBin) of
+            case local_keydir_serv:read(KeydirServPid, NymBin) of
                 {ok, PublicKey} ->
                     JsonTerm =
                         [{<<"nym">>, PublicKey#pk.nym},
@@ -222,9 +222,9 @@ handle_http_put(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid JSON"});
                 JsonTerm ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    [KeydirServPid] = get_worker_pids([keydir_serv], Options),
                     rest_util:response(Socket, Request,
-                                       key_put(PkiServPid, JsonTerm))
+                                       key_put(KeydirServPid, JsonTerm))
             end;
 	_ ->
 	    ?dbg_log_fmt("~p not found", [Tokens]),
@@ -245,7 +245,7 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 
 %% /key (PUT)
 
-key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
+key_put(KeydirServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
     PublicKey =
         try
             elgamal:binary_to_public_key(base64:decode(PublicKeyBin))
@@ -257,15 +257,15 @@ key_put(PkiServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
         bad_format ->
             {error, bad_request, "Invalid public key"};
         _ ->
-            case local_pki_serv:update(PkiServPid, PublicKey) of
+            case local_keydir_serv:update(KeydirServPid, PublicKey) of
                 ok ->
                     {ok, {format, PublicKey#pk.nym}};
                 {error, no_such_key} ->
-                    ok = local_pki_serv:create(PkiServPid, PublicKey),
+                    ok = local_keydir_serv:create(KeydirServPid, PublicKey),
                     {ok, {format, PublicKey#pk.nym}}
             end
     end;
-key_put(_PkiServPid, _JsonTerm) ->
+key_put(_KeydirServPid, _JsonTerm) ->
     {error, bad_request, "Key is invalid"}.
 
 %% General POST request uri:
@@ -320,10 +320,10 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request,
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    [KeydirServPid] = get_worker_pids([keydir_serv], Options),
                     rest_util:response(
                       Socket, Request,
-                      key_filter_post(PkiServPid, JsonTerm))
+                      key_filter_post(KeydirServPid, JsonTerm))
             end;
         ["key", "delete"] ->
             case rest_util:parse_body(
@@ -334,9 +334,9 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request,
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    [KeydirServPid] = get_worker_pids([keydir_serv], Options),
                     rest_util:response(Socket, Request,
-                                       key_delete_post(PkiServPid, JsonTerm))
+                                       key_delete_post(KeydirServPid, JsonTerm))
             end;
         ["key", "export"] ->
             case rest_util:parse_body(
@@ -347,17 +347,18 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request,
                       {error, bad_request, "Invalid JSON format"});
                 JsonTerm ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
+                    [KeydirServPid] = get_worker_pids([keydir_serv], Options),
                     rest_util:response(
                       Socket, Request,
-                      key_export_post(Options, PkiServPid, JsonTerm))
+                      key_export_post(Options, KeydirServPid, JsonTerm))
             end;
         ["key", "import"] ->
             case Body of
                 {multipart_form_data, FormData} ->
-                    [PkiServPid] = get_worker_pids([pki_serv], Options),
-                    rest_util:response(Socket, Request,
-                                       key_import_post(PkiServPid, FormData));
+                    [KeydirServPid] = get_worker_pids([keydir_serv], Options),
+                    rest_util:response(
+                      Socket, Request,
+                      key_import_post(KeydirServPid, FormData));
                 _ ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid payload"})
@@ -518,10 +519,10 @@ edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
 
 %% /key/filter (POST)
 
-key_filter_post(PkiServPid, JsonTerm) ->
-    key_filter(PkiServPid, JsonTerm, {[], 100}).
+key_filter_post(KeydirServPid, JsonTerm) ->
+    key_filter(KeydirServPid, JsonTerm, {[], 100}).
 
-key_filter(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
+key_filter(_KeydirServPid, SubStringNyms, {PublicKeysAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
     JsonTerm =
         lists:map(
@@ -534,56 +535,56 @@ key_filter(_PkiServPid, SubStringNyms, {PublicKeysAcc, N})
                          PublicKey1#pk.nym < PublicKey2#pk.nym
                  end, PublicKeysAcc)),
     {ok, {format, JsonTerm}};
-key_filter(PkiServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
+key_filter(KeydirServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
   when is_binary(SubStringNym) ->
     {ok, PublicKeys} =
-        local_pki_serv:list(PkiServPid, {substring, SubStringNym}, N),
-    key_filter(PkiServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
-key_filter(_PkiServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
+        local_keydir_serv:list(KeydirServPid, {substring, SubStringNym}, N),
+    key_filter(KeydirServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
+key_filter(_KeydirServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
     {error, bad_request, "Invalid filter"}.
 
 %% /key/delete (POST)
 
-key_delete_post(PkiServPid, Nyms) when is_list(Nyms) ->
-    key_delete(PkiServPid, Nyms, []);
-key_delete_post(_PkiServPid, _JsonTerm) ->
+key_delete_post(KeydirServPid, Nyms) when is_list(Nyms) ->
+    key_delete(KeydirServPid, Nyms, []);
+key_delete_post(_KeydirServPid, _JsonTerm) ->
     {error, bad_request, "Invalid nyms"}.
 
-key_delete(_PkiServPid, [], Failures) ->
+key_delete(_KeydirServPid, [], Failures) ->
     JsonTerm =
         lists:map(
           fun({Nym, Reason}) ->
                   [{<<"nym">>, Nym},
-                   {<<"reason">>, local_pki_serv:strerror(Reason)}]
+                   {<<"reason">>, local_keydir_serv:strerror(Reason)}]
           end, Failures),
     {ok, {format, JsonTerm}};
-key_delete(PkiServPid, [Nym|Rest], Failures)
+key_delete(KeydirServPid, [Nym|Rest], Failures)
   when is_binary(Nym) ->
-    case local_pki_serv:delete(PkiServPid, Nym) of
+    case local_keydir_serv:delete(KeydirServPid, Nym) of
         ok ->
-            key_delete(PkiServPid, Rest, Failures);
+            key_delete(KeydirServPid, Rest, Failures);
         {error, Reason} ->
-            key_delete(PkiServPid, Rest, [{Nym, Reason}|Failures])
+            key_delete(KeydirServPid, Rest, [{Nym, Reason}|Failures])
     end;
-key_delete(PkiServPid, [_|Rest], Failures) ->
-    key_delete(PkiServPid, Rest, Failures).
+key_delete(KeydirServPid, [_|Rest], Failures) ->
+    key_delete(KeydirServPid, Rest, Failures).
 
 %% /key/export (POST)
 
-key_export_post(Options, PkiServPid, <<"all">>) ->
-{ok, Nyms} = local_pki_serv:all_nyms(PkiServPid),
-    key_export_post(Options, PkiServPid, Nyms);
-key_export_post(Options, PkiServPid, Nyms) when is_list(Nyms) ->
+key_export_post(Options, KeydirServPid, <<"all">>) ->
+{ok, Nyms} = local_keydir_serv:all_nyms(KeydirServPid),
+    key_export_post(Options, KeydirServPid, Nyms);
+key_export_post(Options, KeydirServPid, Nyms) when is_list(Nyms) ->
     TempFilename = "keys-" ++ ?i2l(erlang:unique_integer([positive])) ++ ".bin",
     {value, {_, TempDir}} = lists:keysearch(temp_dir, 1, Options),
     AbsFilename = filename:join([TempDir, TempFilename]),
     UriPath = filename:join(["/temp", TempFilename]),
     {ok, File} = file:open(AbsFilename, [write, binary]),
-    key_export(PkiServPid, Nyms, UriPath, File, 0, erlang:md5_init());
-key_export_post(_Options, _PkiServPid, _Nyms) ->
+    key_export(KeydirServPid, Nyms, UriPath, File, 0, erlang:md5_init());
+key_export_post(_Options, _KeydirServPid, _Nyms) ->
     {error, bad_request, "Invalid nyms"}.
 
-key_export(_PkiServPid, [], UriPath, File, N, MD5Context) ->
+key_export(_KeydirServPid, [], UriPath, File, N, MD5Context) ->
     Digest = erlang:md5_final(MD5Context),
     DigestSize = size(Digest),
     DigestPacket = <<0:16/unsigned-integer,
@@ -591,9 +592,9 @@ key_export(_PkiServPid, [], UriPath, File, N, MD5Context) ->
     ok = file:write(File, DigestPacket),
     ok = file:close(File),
     {ok, {format, [{<<"size">>, N}, {<<"uri-path">>, ?l2b(UriPath)}]}};
-key_export(PkiServPid, [Nym|Rest], UriPath, File, N, MD5Context)
+key_export(KeydirServPid, [Nym|Rest], UriPath, File, N, MD5Context)
   when is_binary(Nym) ->
-    case local_pki_serv:read(PkiServPid, Nym) of
+    case local_keydir_serv:read(KeydirServPid, Nym) of
         {ok, PublicKey} ->
             PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
             PublicKeyBinSize = size(PublicKeyBin),
@@ -601,26 +602,28 @@ key_export(PkiServPid, [Nym|Rest], UriPath, File, N, MD5Context)
                 <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
             ok = file:write(File, Packet),
             NewMD5Context = erlang:md5_update(MD5Context, Packet),
-            key_export(PkiServPid, Rest, UriPath, File, N + 1, NewMD5Context);
+            key_export(KeydirServPid, Rest, UriPath, File, N + 1,
+                       NewMD5Context);
         {error, no_such_key} ->
-            key_export(PkiServPid, Rest, UriPath, File, N, MD5Context)
+            key_export(KeydirServPid, Rest, UriPath, File, N, MD5Context)
     end;
-key_export(_PkiServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
+key_export(_KeydirServPid, _Nyms, _UriPath, _File, _N, _MD5Context) ->
     {error, bad_request, "Invalid nyms"}.
 
 %% /key/import (POST)
 
-key_import_post(PkiServPid, FormData) ->
+key_import_post(KeydirServPid, FormData) ->
     case lists:keysearch(file, 1, FormData) of
         {value, {_, _Headers, Filename}} ->
             key_import_post(
-              PkiServPid, Filename,
+              KeydirServPid, Filename,
               fun(PublicKey) ->
-                      case local_pki_serv:update(PkiServPid, PublicKey) of
+                      case local_keydir_serv:update(KeydirServPid, PublicKey) of
                           ok ->
                               ok;
                           {error, no_such_key} ->
-                              ok = local_pki_serv:create(PkiServPid, PublicKey)
+                              ok = local_keydir_serv:create(
+                                     KeydirServPid, PublicKey)
                       end
               end);
         false ->
@@ -629,11 +632,11 @@ key_import_post(PkiServPid, FormData) ->
 
 %% Exported: key_import_post
 
-key_import_post(PkiServPid, Filename, UpdatePublicKey) ->
+key_import_post(KeydirServPid, Filename, UpdatePublicKey) ->
     {ok, File} = file:open(Filename, [read, binary]),
-    key_import(PkiServPid, UpdatePublicKey, File, 0, erlang:md5_init()).
+    key_import(KeydirServPid, UpdatePublicKey, File, 0, erlang:md5_init()).
 
-key_import(PkiServPid, UpdatePublicKey, File, N, MD5Context) ->
+key_import(KeydirServPid, UpdatePublicKey, File, N, MD5Context) ->
     case file:read(File, 2) of
         {ok, <<0:16/unsigned-integer>>} ->
             case file:read(File, 2) of
@@ -679,8 +682,8 @@ key_import(PkiServPid, UpdatePublicKey, File, N, MD5Context) ->
                                     NewMD5Context =
                                         erlang:md5_update(MD5Context, Packet),
                                     key_import(
-                                      PkiServPid, UpdatePublicKey, File, N + 1,
-                                      NewMD5Context);
+                                      KeydirServPid, UpdatePublicKey, File,
+                                      N + 1, NewMD5Context);
                                 {error, permission_denied} ->
                                     {error, no_access}
                             end

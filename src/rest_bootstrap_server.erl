@@ -480,14 +480,14 @@ bootstrap_key_import_post(FormData) ->
             _ ->
                 case lists:keysearch(file, 1, FormData) of
                     {value, {_, _Headers, Filename}} ->
-                        case local_pki_serv:new_db(
+                        case local_keydir_serv:new_db(
                                Nym, MixmeshDir, Pin, PinSalt) of
                             {ok, File, SharedKey} ->
                                 Result =
                                     rest_normal_server:key_import_post(
                                       undefined, Filename,
                                       fun(PublicKey) ->
-                                              local_pki_serv:write_to_db(
+                                              local_keydir_serv:write_to_db(
                                                 File, SharedKey, PublicKey)
                                       end),
                                 ok = file:close(File),

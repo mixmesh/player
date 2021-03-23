@@ -110,7 +110,7 @@ get() ->
              name = string,  %% db password
              typical = <<"password">>,
              reloadable = false}}]},
-       {'pki-access-settings',
+       {'keydir-access-settings',
         [{mode,
           #json_type{
              name = atom,
@@ -149,12 +149,12 @@ get() ->
                       (tor_fallback_to_tcp) -> 'tor-fallback-to-tcp'
                    end,
                reloadable = false}},
-           {'pki-server-tor-address',
+           {'keydir-server-tor-address',
             #json_type{
                name = hostname_port,
                typical = {"z2rev4qfooicn3z3.onion", 10000},
                reloadable = false}},
-           {'pki-server-tcp-address',
+           {'keydir-server-tcp-address',
             #json_type{
                name = ip4_address_port,
                typical = {"mother.tplinkdns.com", 10001},
