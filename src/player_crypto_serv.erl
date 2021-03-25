@@ -159,6 +159,10 @@ message_handler(State) ->
         {system, From, Request} ->
             {system, From, Request};
 
+	%% not using neighbout info
+	{neighbour_workers, _NeighbourWorkers} ->
+	    noreply;
+
         {'EXIT', Pid, Reason} when Pid =:= State#state.parent ->
             exit(Reason);
 
