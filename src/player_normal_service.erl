@@ -1,4 +1,4 @@
--module(rest_normal_server).
+-module(player_normal_service).
 -export([start_link/5]).
 -export([key_import_post/3]).
 -export([handle_http_request/4]).

@@ -124,8 +124,8 @@ init(normal) ->
                      Pop3Address]}},
     RestServerSpecs =
         lists:map(fun({IpAddress, Port}) ->
-                          #{id => {rest_normal_server, {IpAddress, Port}},
-                            start => {rest_normal_server, start_link,
+                          #{id => {player_normal_service, {IpAddress, Port}},
+                            start => {player_normal_service, start_link,
                                       [Nym, HttpPassword, TempDir, CertFilename,
                                        {IpAddress, Port}]}}
                   end, HttpAddress),
@@ -197,8 +197,8 @@ init(#simulated_player_serv_config{
                      Pop3Address]}},
     RestServerSpecs =
         lists:map(fun({IpAddress, Port}) ->
-                          #{id => {rest_normal_server, {IpAddress, Port}},
-                            start => {rest_normal_server, start_link,
+                          #{id => {player_normal_service, {IpAddress, Port}},
+                            start => {player_normal_service, start_link,
                                       [Nym, HttpPassword, TempDir, CertFilename,
                                        {IpAddress, Port}]}}
                   end, HttpAddress),

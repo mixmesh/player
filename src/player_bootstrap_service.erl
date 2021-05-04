@@ -1,4 +1,4 @@
--module(rest_bootstrap_server).
+-module(player_bootstrap_service).
 -export([start_link/1]).
 -export([handle_http_request/4]).
 
@@ -484,7 +484,7 @@ bootstrap_key_import_post(FormData) ->
                                Nym, MixmeshDir, Pin, PinSalt) of
                             {ok, File, SharedKey} ->
                                 Result =
-                                    rest_normal_server:key_import_post(
+                                    player_normal_service:key_import_post(
                                       undefined, Filename,
                                       fun(PublicKey) ->
                                               local_keydir_serv:write_to_db(
