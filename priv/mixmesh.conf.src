@@ -19,12 +19,13 @@
         "enabled": false,
         "address": "0.0.0.0:11112",
         "timeout": 30000,
-        "data-dir": "@@MIXMESH-DIR@@/remote-keydir",
-        "webkey-service": {
-          "enabled": true,
-          "address": "0.0.0.0:4434"
-        }
+        "data-dir": "@@MIXMESH-DIR@@/remote-keydir"
     },
+    "keydir-service": {
+        "enabled": false,
+        "address": "0.0.0.0:4436",
+        "data-dir": "/tmp/mixmesh/keydir-service"
+    },        
     "player": {
         "enabled": true,
         "nym": "@@NYM@@",
