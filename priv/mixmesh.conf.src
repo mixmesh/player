@@ -19,7 +19,7 @@
         "enabled": false,
         "address": "0.0.0.0:11112",
         "timeout": 30000,
-        "data-dir": "@@MIXMESH-DIR@@/remote-keydir"
+        "data-dir": "@@MIXMESH-DIR@@/remote-keydir-server"
     },
     "keydir-service": {
         "enabled": false,
