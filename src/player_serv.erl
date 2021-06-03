@@ -20,8 +20,6 @@
 -include_lib("apptools/include/serv.hrl").
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
--include_lib("keydir/include/keydir_serv.hrl").
--include_lib("keydir/include/keydir_network_client.hrl").
 -include("../include/player_serv.hrl").
 -include("../include/player_sync_serv.hrl").
 -include("../include/player_buffer.hrl").
@@ -39,7 +37,6 @@
                       {message_not_in_buffer |
                        message_in_buffer, message_id()}} |
                      is_nothing.
--type keydir_password() :: binary().
 -type keydir_mode() ::
         local |
         {service, keydir_service:password(), keydir_service:access()}.
@@ -825,5 +822,5 @@ publish_public_key(KeydirServPid, local, Nym, Pk) ->
                system, "Created an entry in the local Keydir server", []),
             ok
     end;
-publish_public_key(KeydirServPid, {service, Password, Access}, _Nym, Pk) ->
+publish_public_key(_KeydirServPid, {service, Password, Access}, _Nym, Pk) ->
     keydir_service_client:publish(Access, Password, Pk).

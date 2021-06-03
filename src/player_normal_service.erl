@@ -8,7 +8,7 @@
 -include_lib("rester/include/rester.hrl").
 -include_lib("rester/include/rester_http.hrl").
 -include_lib("apptools/include/config_schema.hrl").
--include_lib("keydir/include/keydir_serv.hrl").
+-include_lib("elgamal/include/elgamal.hrl").
 
 -define(IDLE_TIMEOUT, infinity). %% 60 * 1000).
 -define(SEND_TIMEOUT, infinity). %% default send timeout
