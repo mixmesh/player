@@ -114,48 +114,24 @@ get() ->
         [{mode,
           #json_type{
              name = atom,
-             info = "remote or local",
+             info = "local or service",
              typical = local,
              transform =
-                 fun(remote) -> remote;
-                    (local) -> local;
+                 fun(local) -> local;
+                    (service) -> service;
                     (_) ->
                          throw({failed,
-                                <<"Must be one of remote or local">>})
+                                <<"Must be one of local or service">>})
                  end,
              reloadable = false}},
-         {remote,
+         {service,
           [{'password',
             #json_type{
                name = string,
                typical = <<"smellyfeets">>,
                reloadable = false}},
-           {access,
-            #json_type{
-               name = atom,
-               info = "tor-only, tcp-only or tor-fallback-to-tcp",
-               typical = tor_only,
-               transform =
-                   fun('tor-only') -> tor_only;
-                      ('tcp-only') -> tcp_only;
-                      ('tor-fallback-to-tcp') -> tor_fallback_to_tcp;
-                      (_) ->
-                           throw({failed,
-                                  "Must be one of tor-only, tcp-only or tor-fallback-to-tcp"})
-                   end,
-               untransform =
-                   fun(tor_only) -> 'tor-only';
-                      (tcp_only) -> 'tcp-only';
-                      (tor_fallback_to_tcp) -> 'tor-fallback-to-tcp'
-                   end,
-               reloadable = false}},
-           {'keydir-server-tor-address',
-            #json_type{
-               name = hostname_port,
-               typical = {"z2rev4qfooicn3z3.onion", 10000},
-               reloadable = false}},
-           {'keydir-server-tcp-address',
+           {address,
             #json_type{
                name = ip4_address_port,
-               typical = {"mother.tplinkdns.com", 10001},
+               typical = {"keydir.mixmesh.se", 4436},
                reloadable = false}}]}]}]}].

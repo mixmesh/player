@@ -15,12 +15,6 @@
 	"max-wait-nodes": 1000,
 	"max-down-nodes": 2000
     },
-    "remote-keydir-server": {
-        "enabled": false,
-        "address": "0.0.0.0:11112",
-        "timeout": 30000,
-        "data-dir": "@@MIXMESH-DIR@@/remote-keydir-server"
-    },
     "keydir-service": {
         "enabled": false,
         "address": "0.0.0.0:4436",
@@ -57,11 +51,9 @@
         },
         "keydir-access-settings": {
             "mode": "local",
-            "remote": {
-                "password": "baz",
-                "access": "tcp-only",
-                "keydir-server-tor-address": "z2rev4qfooicn3z3.onion:11112",
-                "keydir-server-tcp-address": "127.0.0.1:11112"
+            "service": {
+              "password": "baz",
+              "address": "127.0.0.1:4436"
             }
         }
     },

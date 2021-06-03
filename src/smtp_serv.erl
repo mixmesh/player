@@ -247,7 +247,9 @@ data(#channel{
                         ok ->
                             #response{channel = Channel#channel{mode = helo}};
                         {error, Reason} ->
-                            #response{status = 550, info = Reason}
+                            ?error_log({send_message, Reason}),
+                            #response{status = 550,
+                                      info = <<"message could not be sent">>}
                     end
             end
     end.

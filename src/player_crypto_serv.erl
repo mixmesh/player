@@ -20,7 +20,7 @@
 -record(state,
 	{
 	 parent :: pid(),
-	 store  :: erlang:tid(),
+	 store  :: ets:tid(),
 	 count = 0 :: integer(),
 	 locked = true :: boolean(),
 	 backoff = false :: boolean(),

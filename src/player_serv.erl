@@ -39,8 +39,10 @@
                       {message_not_in_buffer |
                        message_in_buffer, message_id()}} |
                      is_nothing.
+-type keydir_password() :: binary().
 -type keydir_mode() ::
-        local | {remote, binary(), keydir_network_client:keydir_access()}.
+        local |
+        {service, keydir_service:password(), keydir_service:access()}.
 
 -record(state,
         {parent :: pid(),
@@ -81,7 +83,9 @@
            [{pid(), Index :: pos_integer()}],
          is_pinned_by_simulator = false :: boolean()}).
 
+%%
 %% Exported: start_link
+%%
 
 -spec start_link(binary(), {inet:ip_address(), inet:port_number()}, integer(),
                  number(), number(), binary(), binary(),
@@ -102,7 +106,7 @@ start_link(Nym, SyncAddress, BufferSize, F, K, TempDir, BufferDir, RoutingType,
        fun initial_message_handler/1).
 
 initial_message_handler(#state{nym = Nym,
-                               keys = {PublicKey, _SecretKey},
+                               keys = {Pk, _Sk},
                                keydir_mode = KeydirMode,
                                simulated = Simulated} = State) ->
     receive
@@ -121,7 +125,7 @@ initial_message_handler(#state{nym = Nym,
                     NodisServPid = whereis(nodis_serv)
             end,
             {ok, NodisSubscription} = nodis_serv:subscribe(NodisServPid),
-            ok = publish_public_key(KeydirServPid, KeydirMode, Nym, PublicKey),
+            ok = publish_public_key(KeydirServPid, KeydirMode, Nym, Pk),
             {swap_message_handler, fun ?MODULE:message_handler/1,
              State#state{maildrop_serv_pid = MaildropServPid,
                          keydir_serv_pid = KeydirServPid,
@@ -129,50 +133,63 @@ initial_message_handler(#state{nym = Nym,
                          nodis_subscription = NodisSubscription}}
     end.
 
+%%
 %% Exported: stop
+%%
 
 -spec stop(pid()) -> ok.
 
 stop(Pid) ->
     serv:call(Pid, stop).
 
+%%
 %% Exported: pin_location
+%%
 
 -spec pin_location(pid(), {number(), number()}) -> ok.
 
 pin_location(Pid, {Longitude, Latitude}) ->
     serv:cast(Pid, {pin_location, Longitude, Latitude}).
 
+%%
 %% Exported: become_source
+%%
 
 -spec become_source(pid(), binary(), message_id()) -> ok.
 
 become_source(Pid, TargetNym, MessageMD5) ->
     serv:cast(Pid, {become_source, TargetNym, MessageMD5}).
 
+%%
 %% Exported: become_target
-
+%%
 -spec become_target(pid(), message_id()) ->
           ok.
 
 become_target(Pid, MessageMD5) ->
     serv:cast(Pid, {become_target, MessageMD5}).
 
+%%
 %% Exported: become_forwarder
+%%
 
 -spec become_forwarder(pid(), message_id()) -> ok.
 
 become_forwarder(Pid, MessageMD5) ->
     serv:cast(Pid, {become_forwarder, MessageMD5}).
 
+%%
 %% Exported: become_nothing
+%%
 
 -spec become_nothing(pid()) -> ok.
 
 become_nothing(Pid) ->
     serv:cast(Pid, become_nothing).
 
+%%
 %% Exported: buffer_read
+%%
 
 -spec buffer_read(Pid::pid(), Index::non_neg_integer()) ->
 	  {ok, Message::binary()}.
@@ -180,7 +197,9 @@ become_nothing(Pid) ->
 buffer_read(Pid, Index) ->
     serv:call(Pid, {buffer_read, Index}).
 
+%%
 %% Exported: buffer_write
+%%
 
 -spec buffer_write(Pid::pid(), Index::non_neg_integer(),
 		   Message::binary()) ->
@@ -189,14 +208,18 @@ buffer_read(Pid, Index) ->
 buffer_write(Pid, Index, Message) ->
     serv:call(Pid, {buffer_write, Index, Message}).
 
+%%
 %% Exported: buffer_size
+%%
 
 -spec buffer_size(pid()) -> integer().
 
 buffer_size(Pid) ->
     serv:call(Pid, buffer_size).
 
+%%
 %% Exported: buffer_select_suitable
+%%
 
 -spec buffer_select_suitable(pid(), #routing_info{}, Factor::float()) ->
           [integer()].
@@ -204,7 +227,9 @@ buffer_size(Pid) ->
 buffer_select_suitable(Pid, NeighbourRoutingInfo, F) ->
     serv:call(Pid, {buffer_select_suitable, NeighbourRoutingInfo, F}).
 
+%%
 %% Exported: got_message
+%%
 
 -spec got_message(
         pid(), message_id(), binary(), non_neg_integer(), binary()) ->
@@ -214,14 +239,18 @@ got_message(Pid, Message, SenderNym, Signature, DecryptedData) ->
     serv:cast(Pid, {got_message, Message, SenderNym, Signature,
                     DecryptedData}).
 
+%%
 %% Exported: pick_as_source
+%%
 
 -spec pick_as_source(pid()) -> ok.
 
 pick_as_source(Pid) ->
     serv:cast(Pid, pick_as_source).
 
+%%
 %% Exported: send_message
+%%
 
 -spec send_message(pid(), binary(), binary()) ->
           ok | {error, any()}.
@@ -229,14 +258,18 @@ pick_as_source(Pid) ->
 send_message(Pid, RecipientNym, Payload) ->
     serv:call(Pid, {send_message, RecipientNym, Payload}).
 
+%%
 %% Exported: start_location_updating
+%%
 
 -spec start_location_updating(pid()) -> ok.
 
 start_location_updating(Pid) ->
     serv:cast(Pid, start_location_updating).
 
+%%
 %% Exported: get_routing_info
+%%
 
 -spec get_routing_info(pid()) -> #routing_info{}.
 
@@ -308,7 +341,7 @@ message_handler(
          buffer_dir = _BufferDir,
          buffer_handle = BufferHandle,
          message_digests = MessageDigests,
-         keys = {_PublicKey, SecretKey} = Keys,
+         keys = {_Pk, Sk} = Keys,
          simulated_longitude_topic = SimulatedLongitudeTopic,
          simulated_latitude_topic = SimulatedLatitudeTopic,
          location_generator = LocationGenerator,
@@ -426,10 +459,11 @@ message_handler(
                     Verified =
 			case read_public_key(KeydirServPid, KeydirMode,
                                              SenderNym) of
-			    {ok, SenderPublicKey} ->
+			    {ok, SenderPk} ->
                                 elgamal:verify(Signature, DecryptedData,
-                                               SenderPublicKey);
-                            {error, _Reason} ->
+                                               SenderPk);
+                            {error, Reason} ->
+                                ?dbg_log({public_key_not_available, Reason}),
 				false
 			end,
                     TempFilename = mail_util:mktemp(TempDir),
@@ -501,10 +535,9 @@ message_handler(
             {noreply, State#state{picked_as_source = true}};
         {call, From, {send_message, RecipientNym, Payload}} ->
             case read_public_key(KeydirServPid, KeydirMode, RecipientNym) of
-                {ok, RecipientPublicKey} ->
+                {ok, RecipientPk} ->
                     EncryptedData =
-                        elgamal:uencrypt(Payload, RecipientPublicKey,
-                                         SecretKey),
+                        elgamal:uencrypt(Payload, RecipientPk, Sk),
 		    IndexList = player_buffer:select(BufferHandle, K),
 		    MessageMD5 = erlang:md5(EncryptedData),
                     RecipientRoutingHeader =
@@ -774,85 +807,23 @@ res_neighbours([], [], [], Acc) ->
 
 read_public_key(KeydirServPid, local, Nym) ->
     local_keydir_serv:read(KeydirServPid, Nym);
-read_public_key(_KeydirServPid, {remote, _KeydirPassword, KeydirAccess}, Nym) ->
-    case keydir_network_client:read(
-           Nym, #keydir_network_client_options{keydir_access = KeydirAccess},
-           ?KEYDIR_NETWORK_TIMEOUT) of
-        {ok, #keydir_user{public_key = PublicKey}} ->
-            {ok, PublicKey};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+read_public_key(_KeydirServPid, {service, _Password, Access}, Nym) ->
+    keydir_service_client:read(Access, {nym, Nym}).
 
-publish_public_key(KeydirServPid, local, Nym, PublicKey) ->
+publish_public_key(KeydirServPid, local, Nym, Pk) ->
     case local_keydir_serv:read(KeydirServPid, Nym) of
-        {ok, PublicKey} ->
+        {ok, Pk} ->
             ?daemon_log_tag_fmt(system, "Local Keydir server is in sync", []),
             ok;
-        {ok, NewPublicKey} ->
-            ok = local_keydir_serv:update(KeydirServPid, NewPublicKey),
+        {ok, NewPk} ->
+            ok = local_keydir_serv:update(KeydirServPid, NewPk),
             ?daemon_log_tag_fmt(system, "Updated the local Keydir server", []),
             ok;
         {error, no_such_key} ->
-            ok = local_keydir_serv:create(KeydirServPid, PublicKey),
+            ok = local_keydir_serv:create(KeydirServPid, Pk),
             ?daemon_log_tag_fmt(
                system, "Created an entry in the local Keydir server", []),
             ok
     end;
-publish_public_key(KeydirServPid,
-                   {remote, KeydirPassword, KeydirAccess} = KeydirMode, Nym,
-                   PublicKey) ->
-    case keydir_network_client:read(
-           Nym, #keydir_network_client_options{keydir_access = KeydirAccess},
-           ?KEYDIR_NETWORK_TIMEOUT) of
-        {ok, #keydir_user{public_key = PublicKey}} ->
-            ?daemon_log_tag_fmt(system, "Remote Keydir server is in sync", []),
-            ok;
-        {ok, KeydirUser} ->
-            case keydir_network_client:update(
-                   KeydirUser#keydir_user{password = KeydirPassword,
-                                          public_key = PublicKey},
-                   #keydir_network_client_options{keydir_access = KeydirAccess},
-                   ?KEYDIR_NETWORK_TIMEOUT) of
-                ok ->
-                    ?daemon_log_tag_fmt(
-                       system, "Updated the remote Keydir server", []),
-                    ok;
-                {error, Reason} ->
-                    ?daemon_log_tag_fmt(
-                       system,
-                       "Could not update the remote Keydir server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?KEYDIR_PUSHBACK_TIME),
-                    publish_public_key(KeydirServPid, KeydirMode, Nym,
-                                       PublicKey)
-            end;
-        {error, <<"No such user">>} ->
-            case keydir_network_client:create(
-                   #keydir_user{nym = Nym,
-                                password = KeydirPassword,
-                                public_key = PublicKey},
-                   #keydir_network_client_options{keydir_access = KeydirAccess},
-                   ?KEYDIR_NETWORK_TIMEOUT) of
-                ok ->
-                    ?daemon_log_tag_fmt(
-                       system, "Created an entry in the remote Keydir server",
-                       []),
-                    ok;
-                {error, Reason} ->
-                    ?daemon_log_tag_fmt(
-                       system,
-                       "Could not create an entry in the remote Keydir server (~p). Will try again in ~w seconds.",
-                       [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
-                    timer:sleep(?KEYDIR_PUSHBACK_TIME),
-                    publish_public_key(KeydirServPid, KeydirMode, Nym,
-                                       PublicKey)
-            end;
-        {error, Reason} ->
-            ?daemon_log_tag_fmt(
-               system,
-               "Could not contact the remote Keydir server (~p). Will try again in ~w seconds.",
-               [Reason, trunc(?KEYDIR_PUSHBACK_TIME / 1000)]),
-            timer:sleep(?KEYDIR_PUSHBACK_TIME),
-            publish_public_key(KeydirServPid, KeydirMode, Nym, PublicKey)
-    end.
+publish_public_key(KeydirServPid, {service, Password, Access}, _Nym, Pk) ->
+    keydir_service_client:publish(Access, Password, Pk).

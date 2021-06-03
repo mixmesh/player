@@ -64,23 +64,13 @@ init(normal) ->
         case config:lookup([player, 'keydir-access-settings', mode]) of
             local ->
                 local;
-            remote ->
-                [KeydirPassword, KeydirAccess, KeydirServerTorAddress,
-                 KeydirServerTcpAddress] =
+            service ->
+                [Password, Address] =
                     config:lookup_children(
-                      [password, access, 'keydir-server-tor-address',
-                       'keydir-server-tcp-address'],
-                      config:lookup([player, 'keydir-access-settings', remote])),
-                case KeydirAccess of
-                    tor_only ->
-                        {remote, KeydirPassword, {tor_only, KeydirServerTorAddress}};
-                    tcp_only ->
-                        {remote, KeydirPassword, {tcp_only, KeydirServerTcpAddress}};
-                    tor_fallback_to_tcp ->
-                        {remote, KeydirPassword,
-                         {tor_fallback_to_tcp, KeydirServerTorAddress,
-                          KeydirServerTcpAddress}}
-                end
+                      [password, address],
+                      config:lookup(
+                        [player, 'keydir-access-settings', service])),
+                {service, Password, Address}
         end,
     PlayerDir = filename:join([MixmeshDir, Nym, <<"player">>]),
     TempDir = filename:join([PlayerDir, <<"temp">>]),
