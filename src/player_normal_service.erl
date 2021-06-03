@@ -117,26 +117,25 @@ handle_http_get(Socket, Request, Options, Url, Tokens, _Body, v1) ->
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key"] ->
             [KeydirServPid] = get_worker_pids([keydir_serv], Options),
-            {ok, PublicKeys} = local_keydir_serv:list(KeydirServPid, all, 100),
+            {ok, PkList} = local_keydir_serv:list(KeydirServPid, all, 100),
             JsonTerm =
                 lists:map(
-                  fun(PublicKey) ->
-                          [{<<"nym">>, PublicKey#pk.nym},
+                  fun(Pk) ->
+                          [{<<"nym">>, Pk#pk.nym},
                            {<<"public-key">>,
                             base64:encode(
-                              elgamal:public_key_to_binary(PublicKey))}]
-                  end, PublicKeys),
+                              elgamal:pk_to_binary(Pk))}]
+                  end, PkList),
             rest_util:response(Socket, Request, {ok, {format, JsonTerm}});
         ["key", Nym] ->
             [KeydirServPid] = get_worker_pids([keydir_serv], Options),
             NymBin = ?l2b(Nym),
             case local_keydir_serv:read(KeydirServPid, NymBin) of
-                {ok, PublicKey} ->
+                {ok, Pk} ->
                     JsonTerm =
-                        [{<<"nym">>, PublicKey#pk.nym},
+                        [{<<"nym">>, Pk#pk.nym},
                          {<<"public-key">>,
-                          base64:encode(
-                            elgamal:public_key_to_binary(PublicKey))}],
+                          base64:encode(elgamal:pk_to_binary(Pk))}],
                     rest_util:response(Socket, Request,
                                        {ok, {format, JsonTerm}});
                 {error, no_such_key} ->
@@ -250,23 +249,23 @@ handle_http_put(Socket, Request, Options, Url, Tokens, Body, dj) ->
 %% /key (PUT)
 
 key_put(KeydirServPid, PublicKeyBin) when is_binary(PublicKeyBin) ->
-    PublicKey =
+    Pk =
         try
-            elgamal:binary_to_public_key(base64:decode(PublicKeyBin))
+            elgamal:binary_to_pk(base64:decode(PublicKeyBin))
         catch
             _:_ ->
                 bad_format
         end,
-    case PublicKey of
+    case Pk of
         bad_format ->
             {error, bad_request, "Invalid public key"};
         _ ->
-            case local_keydir_serv:update(KeydirServPid, PublicKey) of
+            case local_keydir_serv:update(KeydirServPid, Pk) of
                 ok ->
-                    {ok, {format, PublicKey#pk.nym}};
+                    {ok, {format, Pk#pk.nym}};
                 {error, no_such_key} ->
-                    ok = local_keydir_serv:create(KeydirServPid, PublicKey),
-                    {ok, {format, PublicKey#pk.nym}}
+                    ok = local_keydir_serv:create(KeydirServPid, Pk),
+                    {ok, {format, Pk#pk.nym}}
             end
     end;
 key_put(_KeydirServPid, _JsonTerm) ->
@@ -526,25 +525,24 @@ edit_config_merge([{Name, OldValue}|OldJsonTerm], NewJsonTerm) ->
 key_filter_post(KeydirServPid, JsonTerm) ->
     key_filter(KeydirServPid, JsonTerm, {[], 100}).
 
-key_filter(_KeydirServPid, SubStringNyms, {PublicKeysAcc, N})
+key_filter(_KeydirServPid, SubStringNyms, {PkAcc, N})
   when SubStringNyms == [] orelse N == 0 ->
     JsonTerm =
         lists:map(
-          fun(PublicKey) ->
-                  [{<<"nym">>, PublicKey#pk.nym},
-                   {<<"public-key">>,
-                    base64:encode(elgamal:public_key_to_binary(PublicKey))}]
+          fun(Pk) ->
+                  [{<<"nym">>, Pk#pk.nym},
+                   {<<"public-key">>, base64:encode(elgamal:pk_to_binary(Pk))}]
           end, lists:usort(
-                 fun(PublicKey1, PublicKey2) ->
-                         PublicKey1#pk.nym < PublicKey2#pk.nym
-                 end, PublicKeysAcc)),
+                 fun(Pk1, Pk2) ->
+                         Pk1#pk.nym < Pk2#pk.nym
+                 end, PkAcc)),
     {ok, {format, JsonTerm}};
-key_filter(KeydirServPid, [SubStringNym|Rest], {PublicKeysAcc, N})
+key_filter(KeydirServPid, [SubStringNym|Rest], {PkAcc, N})
   when is_binary(SubStringNym) ->
-    {ok, PublicKeys} =
+    {ok, Pks} =
         local_keydir_serv:list(KeydirServPid, {substring, SubStringNym}, N),
-    key_filter(KeydirServPid, Rest, {PublicKeys ++ PublicKeysAcc, N - 1});
-key_filter(_KeydirServPid, _SubStringNyms, {_PublicKeysAcc, _N}) ->
+    key_filter(KeydirServPid, Rest, {Pks ++ PkAcc, N - 1});
+key_filter(_KeydirServPid, _SubStringNyms, {_PkAcc, _N}) ->
     {error, bad_request, "Invalid filter"}.
 
 %% /key/delete (POST)
@@ -599,11 +597,10 @@ key_export(_KeydirServPid, [], UriPath, File, N, MD5Context) ->
 key_export(KeydirServPid, [Nym|Rest], UriPath, File, N, MD5Context)
   when is_binary(Nym) ->
     case local_keydir_serv:read(KeydirServPid, Nym) of
-        {ok, PublicKey} ->
-            PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
+        {ok, Pk} ->
+            PublicKeyBin = elgamal:pk_to_binary(Pk),
             PublicKeyBinSize = size(PublicKeyBin),
-            Packet =
-                <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
+            Packet = <<PublicKeyBinSize:16/unsigned-integer, PublicKeyBin/binary>>,
             ok = file:write(File, Packet),
             NewMD5Context = erlang:md5_update(MD5Context, Packet),
             key_export(KeydirServPid, Rest, UriPath, File, N + 1,
@@ -621,13 +618,12 @@ key_import_post(KeydirServPid, FormData) ->
         {value, {_, _Headers, Filename}} ->
             key_import_post(
               KeydirServPid, Filename,
-              fun(PublicKey) ->
-                      case local_keydir_serv:update(KeydirServPid, PublicKey) of
+              fun(Pk) ->
+                      case local_keydir_serv:update(KeydirServPid, Pk) of
                           ok ->
                               ok;
                           {error, no_such_key} ->
-                              ok = local_keydir_serv:create(
-                                     KeydirServPid, PublicKey)
+                              ok = local_keydir_serv:create(KeydirServPid, Pk)
                       end
               end);
         false ->
@@ -668,19 +664,19 @@ key_import(KeydirServPid, UpdatePublicKey, File, N, MD5Context) ->
         {ok, <<PublicKeyBinSize:16/unsigned-integer>>} ->
             case file:read(File, PublicKeyBinSize) of
                 {ok, PublicKeyBin} ->
-                    PublicKey =
+                    Pk =
                         try
-                            elgamal:binary_to_public_key(PublicKeyBin)
+                            elgamal:binary_to_pk(PublicKeyBin)
                         catch
                             _:_ ->
                                 bad_key
                         end,
-                    case PublicKey of
+                    case Pk of
                         bad_key ->
                             ok = file:close(File),
                             {error, bad_request, "Not in Base64 format"};
                         _ ->
-                            case UpdatePublicKey(PublicKey) of
+                            case UpdatePublicKey(Pk) of
                                 ok ->
                                     Packet =
                                         <<PublicKeyBinSize:16/unsigned-integer,

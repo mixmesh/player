@@ -332,8 +332,8 @@ bootstrap_reinstall_post(JsonTerm) ->
         UnpackedKeys =
             try
                 PublicKeyBin = base64:decode(EncodedPublicKey),
-                PublicKey = elgamal:binary_to_public_key(PublicKeyBin),
-                {PublicKey#pk.nym, base64:decode(EncodedSecretKey)}
+                Pk = elgamal:binary_to_pk(PublicKeyBin),
+                {Pk#pk.nym, base64:decode(EncodedSecretKey)}
             catch
                 _:_ ->
                     bad_keys
@@ -490,9 +490,9 @@ bootstrap_key_import_post(FormData) ->
                                 Result =
                                     player_normal_service:key_import_post(
                                       undefined, Filename,
-                                      fun(PublicKey) ->
+                                      fun(Pk) ->
                                               local_keydir_serv:write_to_db(
-                                                File, SharedKey, PublicKey)
+                                                File, SharedKey, Pk)
                                       end),
                                 ok = file:close(File),
                                 Result;

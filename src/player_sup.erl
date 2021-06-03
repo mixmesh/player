@@ -50,14 +50,14 @@ init(normal) ->
         config:lookup_children([address, 'buffer-size', f, k, 'public-key',
                                 'secret-key'],
                                SyncServer),
-    PublicKey = elgamal:binary_to_public_key(EncodedPublicKey),
+    Pk = elgamal:binary_to_pk(EncodedPublicKey),
     PinFilename = filename:join([MixmeshDir, <<"pin">>]),
     {ok, Pin} = file:read_file(PinFilename),
     SharedKey = player_crypto:pin_to_shared_key(Pin, PinSalt),
     {ok, DecryptedSecretKey} =
         player_crypto:shared_decrypt(SharedKey, EncryptedSecretKey),
-    SecretKey = elgamal:binary_to_secret_key(DecryptedSecretKey),
-    Keys = {PublicKey, SecretKey},
+    Sk = elgamal:binary_to_sk(DecryptedSecretKey),
+    Keys = {Pk, Sk},
     [SmtpAddress, SmtpPasswordDigest] =
         config:lookup_children([address, 'password-digest'], SmtpServer),
     [Pop3Address, Pop3PasswordDigest] =

@@ -46,9 +46,9 @@ make_key_pair(Pin, PinSalt, Nym) ->
         _ ->
             SharedKey =
                 enacl:pwhash(?l2b(Pin), PinSalt, enacl:secretbox_KEYBYTES()),
-            {PublicKey, SecretKey} = elgamal:generate_key_pair(?l2b(Nym)),
-            PublicKeyBin = elgamal:public_key_to_binary(PublicKey),
-            SecretKeyBin = elgamal:secret_key_to_binary(SecretKey),
+            {Pk, Sk} = elgamal:generate_key_pair(?l2b(Nym)),
+            PublicKeyBin = elgamal:pk_to_binary(Pk),
+            SecretKeyBin = elgamal:sk_to_binary(Sk),
             Nonce = enacl:randombytes(enacl:secretbox_NONCEBYTES()),
             EncryptedSecretKey = enacl:secretbox(SecretKeyBin, Nonce, SharedKey),
             {ok, PublicKeyBin, SecretKeyBin, <<Nonce/binary, EncryptedSecretKey/binary>>}
