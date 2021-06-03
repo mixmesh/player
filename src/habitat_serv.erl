@@ -24,7 +24,9 @@
          nodis_serv_pid = not_set :: pid() | not_set,
          simulated :: boolean()}).
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Nym, Simulated) ->
     ?spawn_server(fun(Parent) -> init(Parent, Nym, Simulated) end,
@@ -45,7 +47,9 @@ initial_message_handler(#state{simulated = Simulated} = State) ->
              State#state{nodis_serv_pid = NodisServPid}}
     end.
 
+%%
 %% Exported: stop
+%%
 
 stop(Pid) ->
     serv:call(Pid, stop).

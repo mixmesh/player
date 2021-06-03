@@ -5,7 +5,9 @@
 
 -include("../include/player_serv.hrl").
 
+%%
 %% Exported: start_link
+%%
 
 -spec start_link(normal | #simulated_player_serv_config{}) -> any().
 
@@ -29,7 +31,9 @@ start_link(Config) ->
             Error
     end.
 
+%%
 %% Exported: init
+%%
 
 init(normal) ->
     Simulated = false,

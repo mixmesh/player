@@ -2,7 +2,9 @@
 -behaviour(application).
 -export([start/2, stop/1]).
 
+%%
 %% Exported: start
+%%
 
 start(_Type, _StartArgs) ->
     case player_sup:start_link() of
@@ -12,7 +14,9 @@ start(_Type, _StartArgs) ->
             Error
     end.
 
+%%
 %% Exported: stop
+%%
 
 stop(_State) ->
     ok.

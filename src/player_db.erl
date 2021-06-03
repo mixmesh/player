@@ -3,19 +3,25 @@
 
 -include("../include/player_serv.hrl").
 
+%%
 %% Exported: new
+%%
 
 new() ->
     ?MODULE == ets:new(?MODULE,
                        [public, named_table, {keypos, #db_player.nym},
                         {write_concurrency, true}]).
 
+%%
 %% Exported: lookup
+%%
 
 lookup(Nym) ->
     ets:lookup(?MODULE, Nym).
 
+%%
 %% Exported: add
+%%
 
 add(Nym, X, Y) ->
     ets:insert(?MODULE,
@@ -28,7 +34,9 @@ add(Nym, X, Y) ->
                           is_zombie = false,
                           pick_mode = is_nothing}).
 
+%%
 %% Exported: update
+%%
 
 update(#db_player{nym = Nym,
                   x = X,
@@ -64,7 +72,9 @@ get_value(not_set, DefaultValue) ->
 get_value(Value, _DefaultValue) ->
     Value.
 
+%%
 %% Exported: foldl
+%%
 
 foldl(Fun, Acc) ->
     ets:foldl(Fun, Acc, ?MODULE).

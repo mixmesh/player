@@ -12,7 +12,9 @@
 -define(BLUETOOTH_INTERFACE, "pan0").
 -define(USB_INTERFACE, "usb0").
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Port) ->
     CertFilename = filename:join([code:priv_dir(player), "cert.pem"]),
@@ -27,7 +29,9 @@ start_link(Port) ->
                         [Port]),
     rester_http_server:start(Port, ResterHttpArgs).
 
+%%
 %% Exported: handle_http_request
+%%
 
 handle_http_request(Socket, Request, Body, Options) ->
     ?dbg_log_fmt("request = ~s, headers=~s, body=~p",

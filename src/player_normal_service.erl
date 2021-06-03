@@ -14,7 +14,9 @@
 -define(SEND_TIMEOUT, infinity). %% default send timeout
 -define(ONE_HOUR, 3600).
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr, Port}) ->
     ResterHttpArgs =
@@ -30,7 +32,9 @@ start_link(Nym, HttpPassword, TempDir, HttpCertFilename, {IfAddr, Port}) ->
                         [Nym, inet:ntoa(IfAddr), Port]),
     rester_http_server:start_link(Port, ResterHttpArgs).
 
+%%
 %% Exported: handle_http_request
+%%
 
 handle_http_request(Socket, Request, Body, Options) ->
     ?dbg_log_fmt("request = ~s, headers=~s, body=~p",
@@ -630,7 +634,9 @@ key_import_post(KeydirServPid, FormData) ->
             {error, bad_request, "Missing key-file"}
     end.
 
+%%
 %% Exported: key_import_post
+%%
 
 key_import_post(KeydirServPid, Filename, UpdatePublicKey) ->
     {ok, File} = file:open(Filename, [read, binary]),

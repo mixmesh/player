@@ -23,7 +23,9 @@
 	 nodis_serv_pid :: pid() | undefined,
          player_serv_pid = not_set :: pid() | not_set}).
 
+%%
 %% Exported: connect
+%%
 
 connect(Simulated, PlayerServPid, NodisServPid, NAddr, Options) ->
     Pid = proc_lib:spawn(
@@ -66,7 +68,9 @@ connect_now(Simulated, PlayerServPid, NodisServPid,
 	    ?dbg_log_tag(sync, {nodis_connect_reject})
     end.
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Nym, {IpAddress, Port}, F, Keys, Simulated) ->
     ?spawn_server(
@@ -80,7 +84,9 @@ start_link(Nym, {IpAddress, Port}, F, Keys, Simulated) ->
        end,
        fun initial_message_handler/1).
 
+%%
 %% Exported: stop
+%%
 
 stop(Pid) ->
     serv:call(Pid, stop).

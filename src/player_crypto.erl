@@ -7,7 +7,9 @@
 -include_lib("apptools/include/shorthand.hrl").
 -include_lib("elgamal/include/elgamal.hrl").
 
+%%
 %% Exported: digest_password
+%%
 
 -spec digest_password(binary()) -> binary().
 
@@ -16,14 +18,18 @@ digest_password(Password) ->
     DigestPassword = crypto:hash(sha256, [Salt, Password]),
     ?l2b([Salt, DigestPassword]).
 
+%%
 %% Exported: check_digested_password
+%%
 
 -spec check_digested_password(binary(), binary()) -> boolean().
 
 check_digested_password(Password, <<Salt:32/binary, DigestPassword/binary>>) ->
     crypto:hash(sha256, [Salt, Password]) == DigestPassword.
 
+%%
 %% Exported: make_key_pair
+%%
 
 -spec make_key_pair(string(), binary(), string()) ->
           {ok, binary(), binary(), binary()} | {error, string()}.
@@ -48,14 +54,18 @@ make_key_pair(Pin, PinSalt, Nym) ->
             {ok, PublicKeyBin, SecretKeyBin, <<Nonce/binary, EncryptedSecretKey/binary>>}
     end.
 
+%%
 %% Exported: generate_shared_key
+%%
 
 -spec generate_shared_key(binary(), binary()) -> binary().
 
 generate_shared_key(Pin, PinSalt) ->
     enacl:pwhash(Pin, PinSalt, enacl:secretbox_KEYBYTES()).
 
+%%
 %% Exported: shared_encrypt
+%%
 
 -spec shared_encrypt(binary(), binary()) -> {ok, binary()}.
 
@@ -64,7 +74,9 @@ shared_encrypt(SharedKey, Plaintext) ->
     Ciphertext = enacl:secretbox(Plaintext, Nonce, SharedKey),
     {ok, <<Nonce/binary, Ciphertext/binary>>}.
 
+%%
 %% Exported: shared_decrypt
+%%
 
 -spec shared_decrypt(binary(), binary()) ->
           {ok, binary()} | {error, failed_verification}.
@@ -75,14 +87,18 @@ shared_decrypt(SharedKey, NonceAndCiphertext) ->
         NonceAndCiphertext,
     enacl:secretbox_open(Ciphertext, Nonce, SharedKey).
 
+%%
 %% Exported: pin_salt
+%%
 
 -spec pin_salt() -> binary().
 
 pin_salt() ->
     enacl:randombytes(enacl:pwhash_SALTBYTES()).
 
+%%
 %% Exported: pin_to_shared_key
+%%
 
 -spec pin_to_shared_key(binary(), binary()) -> binary().
 

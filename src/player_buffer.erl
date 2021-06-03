@@ -30,7 +30,9 @@
 
 -define(RERANDOMIZATION_TIME, 100).
 
+%%
 %% Exported: new
+%%
 
 -spec new(Dirname::binary(), BufferSize::non_neg_integer(), 
 	  Simulated::boolean()) ->
@@ -86,14 +88,18 @@ trim(DSize, NewSize, Tab) ->
     ok.
 -endif.
 
+%%
 %% Exported: size
+%%
 
 -spec size(buffer_handle()) -> pos_integer().
 
 size(#buffer_handle{size = Size}) ->
     Size.
 
+%%
 %% Exported: read
+%%
 
 %% read a message from the buffer
 read(#buffer_handle{simulated = Simulated,
@@ -130,7 +136,9 @@ read(#buffer_handle{simulated = Simulated,
 	    end
     end.
 
+%%
 %% Exported: write
+%%
 
 %% write a message + messageid to the buffer
 %% we scramble the message before we store it or forward it
@@ -169,7 +177,9 @@ write(#buffer_handle{simulated = Simulated,
                    FileBuffer, {Index, 0, <<>>, RoutingHeaderAndMessage})
     end.
 
+%%
 %% Exported: count
+%%
 
 %% count number of messages with matching MD5
 count(#buffer_handle{buffer = Buffer}, MD5) ->
@@ -183,7 +193,9 @@ count(#buffer_handle{buffer = Buffer}, MD5) ->
 	      end
       end, 0, Buffer).
 
+%%
 %% Exported: select
+%%
 
 %% return a uniformly selected list of K indices in range 1..Size
 select(#buffer_handle{size = Size} = BufferHandle, K)
@@ -217,7 +229,9 @@ randomize_messages(0, Acc) ->
 randomize_messages(Index, Acc) ->
     randomize_messages(Index - 1, [{rand:uniform(), Index}|Acc]).
 
+%%
 %% Exported: select_suitable
+%%
 
 %% return a routed list of F*Size indices in range 1..Size
 select_suitable(
@@ -298,7 +312,9 @@ pick_random_indices(Index, SkipIndices, Acc) ->
               Index - 1, SkipIndices, [{rand:uniform(), Index}|Acc])
     end.
 
+%%
 %% Exported: delete
+%%
 
 -spec delete(buffer_handle()) -> ok | {error, term()}.
 

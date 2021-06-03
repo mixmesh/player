@@ -1,7 +1,9 @@
 -module(persistent_circular_buffer).
 -export([open/3, close/1, exists/2, add/2]).
 
+%%
 %% Exported: open
+%%
 
 open(Name, Filename, MaxSize) ->
     case dets:open_file(Name, [{file, Filename}]) of
@@ -17,17 +19,23 @@ open(Name, Filename, MaxSize) ->
             {error, Reason}
     end.
 
+%%
 %% Exported: close
+%%
 
 close(Db) ->
     dets:close(Db).
 
+%%
 %% Exported: exists
+%%
 
 exists(Db, Digest) ->
     length(dets:lookup(Db, Digest)) == 1.
 
+%%
 %% Exported: add
+%%
 
 add(Db, NewDigest) ->
     ok = dets:insert(Db, {NewDigest, no_next}),

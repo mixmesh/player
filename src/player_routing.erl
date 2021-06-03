@@ -12,7 +12,9 @@
 
 -type routing_type() :: blind | location.
 
+%%
 %% Exported: update_info
+%%
 
 update_info(#routing_info{type = blind} = RoutingInfo, _Longitude, _Latitude) ->
     RoutingInfo;
@@ -23,7 +25,9 @@ update_info(#routing_info{type = location} = RoutingInfo, Longitude,
     RoutingInfo#routing_info{
       data = #location_routing{longitude = Longitude, latitude = Latitude}}.
 
+%%
 %% Exported: info_header
+%%
 
 info_to_header(blind) ->
     <<?ROUTING_BLIND:8/unsigned-integer,
@@ -57,7 +61,9 @@ info_to_header(#routing_info{
       ?NOT_USED/float,
       ?NOT_USED/float>>.
 
+%%
 %% Exported: header_to_info
+%%
 
 header_to_info(<<?ROUTING_BLIND:8/unsigned-integer,
                  ?NOT_USED/float,
@@ -76,7 +82,9 @@ header_to_info(<<?ROUTING_LOCATION:8/unsigned-integer,
                   data = #location_routing{
                             longitude = Longitude, latitude = Latitude}}.
 
+%%
 %% Exported: is_neighbour_more_suitable
+%%
 
 is_neighbour_more_suitable(#routing_info{type = blind}, _RoutingInfo,
                            _MessageRoutingInfo) ->

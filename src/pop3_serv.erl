@@ -19,7 +19,9 @@
          maildrop_serv_pid = not_set :: pid() | not_set,
          temp_dir :: binary()}).
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port}) ->
     PatchInitialServletState =

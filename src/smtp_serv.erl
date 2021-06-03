@@ -23,7 +23,9 @@
          temp_dir :: binary(),
          simulated :: boolean()}).
 
+%%
 %% Exported: start_link
+%%
 
 start_link(Nym, PasswordDigest, TempDir, CertFilename, {IpAddress, Port},
            Simulated) ->
