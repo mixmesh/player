@@ -86,8 +86,8 @@ init(normal) ->
     SessionDecodeKey = crypto:strong_rand_bytes(16),
     PlayerCryptoSpec =
 	#{id => player_crypto_serv,
-          start => {player_crypto_serv, start_link, 
-		    [PinSalt, EncryptedSecretKey, 
+          start => {player_crypto_serv, start_link,
+		    [PinSalt, EncryptedSecretKey,
 		     SharedDecodeKey, SessionDecodeKey]}},
     PlayerServSpec =
         #{id => player_serv,
