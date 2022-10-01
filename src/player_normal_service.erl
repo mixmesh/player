@@ -46,8 +46,8 @@ handle_http_request(Socket, Request, Body, Options) ->
             Result
     catch
 	_Class:Reason:StackTrace ->
-	    ?log_error("handle_http_request: crash reason=~p\n~p\n",
-		       [Reason, StackTrace]),
+	    ?daemon_log_fmt("handle_http_request: crash reason=~p\n~p\n",
+                            [Reason, StackTrace]),
 	    erlang:error(Reason)
     end.
 
