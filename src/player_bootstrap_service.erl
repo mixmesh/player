@@ -115,9 +115,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
     case Tokens of
         ["bootstrap", "install"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -127,9 +126,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
                                        bootstrap_install_post(JsonTerm))
             end;
         ["bootstrap", "reinstall"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -139,9 +137,8 @@ handle_http_post(Socket, Request, _Options, _Url, Tokens, Body, v1) ->
                                        bootstrap_reinstall_post(JsonTerm))
             end;
         ["bootstrap", "restart"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,

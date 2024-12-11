@@ -71,7 +71,7 @@ handle_http_get(Socket, Request, Body, Options) ->
     Url = Request#http_request.uri,
     case string:tokens(Url#url.path, "/") of
 	["versions"] ->
-	    Object = jsone:encode([v1, dj, dt]),
+	    Object = json:encode([v1, dj, dt]),
 	    rester_http_server:response_r(Socket,Request, 200, "OK",
 					  Object,
 					  [{content_type,"application/json"}]);
@@ -218,9 +218,8 @@ handle_http_put(Socket, Request, Body, Options) ->
 handle_http_put(Socket, Request, Options, _Url, Tokens, Body, v1) ->
     case Tokens of
         ["key"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _} ->
                     rest_util:response(Socket, Request,
                                        {error, bad_request, "Invalid JSON"});
@@ -291,9 +290,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
     _Access = rest_util:access(Socket),
     case Tokens of
         ["get-config"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -303,9 +301,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request, get_config_post(JsonTerm))
             end;
         ["edit-config"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -315,9 +312,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       Socket, Request, edit_config_post(JsonTerm))
             end;
         ["key", "filter"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -329,9 +325,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                       key_filter_post(KeydirServPid, JsonTerm))
             end;
         ["key", "delete"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
@@ -342,9 +337,8 @@ handle_http_post(Socket, Request, Options, _Url, Tokens, Body, v1) ->
                                        key_delete_post(KeydirServPid, JsonTerm))
             end;
         ["key", "export"] ->
-            case rest_util:parse_body(
-                   Request, Body,
-                   [{jsone_options, [{object_format, proplist}]}]) of
+            case rest_util:parse_body(Request, Body,
+                                      [{json_options, [proplist]}]) of
                 {error, _Reason} ->
                     rest_util:response(
                       Socket, Request,
